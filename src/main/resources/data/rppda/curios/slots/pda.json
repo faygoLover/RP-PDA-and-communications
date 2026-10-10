@@ -1,0 +1,9 @@
+{
+  "conditions": [{ "type": "rppda:curios_slot" }],
+  "size": 1,
+  "order": 25,
+  "icon": "rppda:slot/pda",
+  "add_cosmetic": false,
+  "use_native_gui": true,
+  "drop_rule": "DEFAULT"
+}

@@ -1,0 +1,6 @@
+{
+  "notify": {
+    "subtitle": "subtitles.rppda.notify",
+    "sounds": [{ "name": "note/chime", "pitch": 1.6, "volume": 0.7 }]
+  }
+}

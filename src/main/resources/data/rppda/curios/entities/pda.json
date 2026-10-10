@@ -1,0 +1,5 @@
+{
+  "conditions": [{ "type": "rppda:curios_slot" }],
+  "entities": ["player"],
+  "slots": ["pda"]
+}
