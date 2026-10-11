@@ -35,6 +35,11 @@ public final class Account {
     public String pwSalt;
     public boolean locked;
     public boolean silent;
+    /** Внешний вид КПК (задаёт ГМ). */
+    public Look look = new Look();
+    /** ГМ выключил связь на этом КПК; с какого момента (сообщения позже не видны, пока связь не вернут). */
+    public boolean noSignal;
+    public long noSignalSince;
     public long created;
     /** Свои подписи к контактам (пустая — без подписи). */
     public final LinkedHashMap<Integer, String> contacts = new LinkedHashMap<>();
@@ -72,6 +77,8 @@ public final class Account {
         }
         t.putBoolean("locked", locked);
         t.putBoolean("silent", silent);
+        t.put("look", look.save());
+        if (noSignal) t.putLong("noSignalSince", noSignalSince);
         t.putLong("created", created);
         ListTag c = new ListTag();
         contacts.forEach((k, v) -> {
@@ -108,6 +115,11 @@ public final class Account {
         }
         a.locked = t.getBoolean("locked");
         a.silent = t.getBoolean("silent");
+        a.look = Look.load(t.getCompound("look"));
+        if (t.contains("noSignalSince")) {
+            a.noSignal = true;
+            a.noSignalSince = t.getLong("noSignalSince");
+        }
         a.created = t.getLong("created");
         for (Tag e : t.getList("contacts", Tag.TAG_COMPOUND)) {
             CompoundTag ct = (CompoundTag) e;

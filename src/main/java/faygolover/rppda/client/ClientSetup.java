@@ -37,7 +37,12 @@ public final class ClientSetup {
     }
 
     private static void setup(FMLClientSetupEvent e) {
-        e.enqueueWork(() -> HudRegistry.register(new UnreadHud()));
+        e.enqueueWork(() -> {
+            HudRegistry.register(new UnreadHud());
+            // Значок КПК в инвентаре — по корпусу (models/item/pda.json, overrides по rppda:skin).
+            net.minecraft.client.renderer.item.ItemProperties.register(faygolover.rppda.item.ModItems.PDA.get(),
+                    new ResourceLocation(RpPda.MODID, "skin"), (stack, level, entity, seed) -> faygolover.rppda.item.PdaItem.skinIndex(stack));
+        });
     }
 
     private static void keys(RegisterKeyMappingsEvent e) {

@@ -189,12 +189,10 @@ public final class PdaGameTests {
         List<Message> ms = messages(dm);
         h.assertTrue(!ms.isEmpty() && ms.get(ms.size() - 1).text.equals("привет, это тест") && ms.get(ms.size() - 1).sender == aa.id,
                 "сообщение лежит в диалоге от отправителя");
-        // Обычный чат — в общий.
+        // /me — действие рядом, в обычный чат, а не в КПК.
         int before = store().global().lastSeq;
         cmd(b, "me машет рукой");
-        h.assertTrue(store().global().lastSeq == before + 1, "/me ушёл в общий чат");
-        Message last = messages(store().global()).get(messages(store().global()).size() - 1);
-        h.assertTrue(last.has(Message.ACTION) && last.sender == bb.id, "/me — действие от учётки");
+        h.assertTrue(store().global().lastSeq == before, "/me не пишется в КПК");
         remove(h, a);
         remove(h, b);
         h.succeed();
@@ -309,5 +307,105 @@ public final class PdaGameTests {
             handler.getStacks().setStackInSlot(0, stack);
             return true;
         }
+    }
+
+    @GameTest(template = T)
+    public static void noSignalBlocksExceptSystem(GameTestHelper h) {
+        ServerPlayer a = player(h), b = player(h);
+        Account aa = register(h, a), bb = register(h, b);
+        Actions.setSignal(store(), aa, false, "test");
+        // Без связи писать нельзя.
+        cmd(a, "msg " + b.getGameProfile().getName() + " есть кто?");
+        Chat dm = store().findDm(aa.id, bb.id);
+        h.assertTrue(dm == null || messages(dm).isEmpty(), "без связи сообщение не ушло");
+        // Ему пишут — сообщение ждёт на сервере, но окно его не показывает до возврата связи.
+        cmd(b, "msg " + a.getGameProfile().getName() + " ты где?");
+        dm = store().findDm(aa.id, bb.id);
+        h.assertTrue(dm != null && !messages(dm).isEmpty(), "входящее сохранено");
+        Message incoming = messages(dm).get(messages(dm).size() - 1);
+        h.assertTrue(incoming.time >= PdaServer.signalCut(a, aa), "входящее — позже пропажи связи (скрыто)");
+        // Диалог с Системой работает и без связи.
+        Chat sys = store().dm(aa.id, 0);
+        h.assertTrue(faygolover.rppda.server.Messaging.check(aa, sys, "помогите", a) == null, "Системе писать можно");
+        h.assertTrue(faygolover.rppda.server.Messaging.check(aa, dm, "привет", a) != null, "другим — нельзя");
+        // Связь у игрока.
+        Actions.setSignal(store(), aa, true, "test");
+        h.assertTrue(PdaServer.signal(a, aa), "связь вернулась");
+        Actions.setPlayerSignal(store(), a.getUUID(), "a", false, "test");
+        h.assertTrue(!PdaServer.signal(a, aa), "без связи у игрока — нет связи и у его КПК");
+        Actions.setPlayerSignal(store(), a.getUUID(), "a", true, "test");
+        remove(h, a);
+        remove(h, b);
+        h.succeed();
+    }
+
+    @GameTest(template = T)
+    public static void characterModeDropsAdminPerks(GameTestHelper h) {
+        ServerPlayer gm = player(h, true);
+        h.assertTrue(PdaServer.isAdmin(gm) && PdaServer.isGm(gm), "админ");
+        Actions.setCharacter(store(), gm, true);
+        h.assertTrue(!PdaServer.isAdmin(gm), "в режиме персонажа — как обычный игрок");
+        h.assertTrue(PdaServer.isGm(gm), "права ГМа (системный КПК, команды) остаются");
+        Actions.setCharacter(store(), gm, false);
+        h.assertTrue(PdaServer.isAdmin(gm), "режим выключен — снова админ");
+        remove(h, gm);
+        h.succeed();
+    }
+
+    @GameTest(template = T)
+    public static void lookGoesWithDevice(GameTestHelper h) {
+        ServerPlayer p = player(h);
+        ItemStack stack = new ItemStack(ModItems.PDA.get());
+        faygolover.rppda.data.Look l = new faygolover.rppda.data.Look();
+        l.body = "disco";
+        l.screen = "synth";
+        l.style = "retro";
+        l.model = "МОЙ-1";
+        PdaItem.setLook(stack, l);
+        p.setItemInHand(InteractionHand.MAIN_HAND, stack);
+        PdaServer.openFromHand(p, InteractionHand.MAIN_HAND);
+        Actions.handle(p, "register", new CompoundTag());
+        Account a = store().account(PdaItem.account(p.getMainHandItem()));
+        h.assertTrue(a != null && a.look.body.equals("disco") && a.look.model.equals("МОЙ-1") && a.look.style.equals("retro"),
+                "вид из предмета перешёл в учётку");
+        faygolover.rppda.data.Look n = a.look.copy();
+        n.body = "wave";
+        Actions.setLook(store(), a, n, "test");
+        PdaServer.scan(p);
+        h.assertTrue(PdaItem.look(p.getMainHandItem()).body.equals("wave"), "предмет показывает новый корпус");
+        h.assertTrue(PdaItem.skinIndex(p.getMainHandItem()) > 0, "иконка — не стандартная");
+        remove(h, p);
+        h.succeed();
+    }
+
+    @GameTest(template = T)
+    public static void commandsForCommandBlocks(GameTestHelper h) {
+        ServerPlayer p = player(h);
+        Account a = register(h, p);
+        var server = h.getLevel().getServer();
+        var src = server.createCommandSourceStack().withSuppressedOutput();
+        server.getCommands().performPrefixedCommand(src, "rppda look " + a.id + " body wave");
+        server.getCommands().performPrefixedCommand(src, "rppda look " + a.id + " screen synth");
+        server.getCommands().performPrefixedCommand(src, "rppda look " + a.id + " model ПОДАРОК-1");
+        h.assertTrue(a.look.body.equals("wave") && a.look.screen.equals("synth") && a.look.model.equals("ПОДАРОК-1"), "/rppda look");
+        server.getCommands().performPrefixedCommand(src, "rppda signal pda " + a.id + " off");
+        h.assertTrue(a.noSignal, "/rppda signal pda off");
+        server.getCommands().performPrefixedCommand(src, "rppda signal pda " + a.id + " on");
+        server.getCommands().performPrefixedCommand(src, "rppda signal player " + p.getGameProfile().getName() + " off");
+        h.assertTrue(!a.noSignal && !PdaServer.signal(p, a), "/rppda signal player off");
+        server.getCommands().performPrefixedCommand(src, "rppda signal player " + p.getGameProfile().getName() + " on");
+        h.assertTrue(PdaServer.signal(p, a), "связь вернулась");
+        int before = 0;
+        for (ItemStack s : p.getInventory().items) if (s.is(ModItems.PDA.get())) before++;
+        server.getCommands().performPrefixedCommand(src, "rppda give " + p.getGameProfile().getName() + " disco lcd");
+        int after = 0;
+        ItemStack given = ItemStack.EMPTY;
+        for (ItemStack s : p.getInventory().items) if (s.is(ModItems.PDA.get())) {
+            after++;
+            if (PdaItem.account(s) == 0) given = s;
+        }
+        h.assertTrue(after == before + 1 && PdaItem.look(given).body.equals("disco") && PdaItem.look(given).screen.equals("lcd"), "/rppda give");
+        remove(h, p);
+        h.succeed();
     }
 }

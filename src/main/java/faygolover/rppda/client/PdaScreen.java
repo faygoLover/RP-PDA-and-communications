@@ -31,7 +31,7 @@ import java.util.UUID;
  * раздел. Кнопки — значки, название всплывает через секунду. Всё, что показывается, присылает сервер.
  */
 public class PdaScreen extends Screen {
-    enum Page { WAIT, REGISTER, LOCKED, CHATS, CHAT, CONTACTS, PROFILE, MEMBERS, SYS_ACCOUNTS, SYS_ACCOUNT, SYS_CHATS, SYS_LOG }
+    enum Page { WAIT, REGISTER, LOCKED, CHATS, CHAT, CONTACTS, PROFILE, MEMBERS, SYS_ACCOUNTS, SYS_ACCOUNT, SYS_CHATS, SYS_LOG, LOOK }
 
     enum Prompt { NONE, NEW_DM, NEW_GROUP, NEW_CHANNEL, ADD_CONTACT, EDIT_LABEL, SET_PW, REMOVE_PW, RENAME_GROUP, INVITE, NPC, NPC_RENAME }
 
@@ -40,6 +40,17 @@ public class PdaScreen extends Screen {
     /** Ретро-вид (80-е): решает сервер ({@code pda_style}) или игрок ({@code rppda-client.toml}). */
     private boolean retro;
     private boolean themedSystem;
+    private String themeKey = "";
+    /** Внешний вид этого КПК (задаёт ГМ); на странице «Внешний вид» — правка, видна сразу на корпусе. */
+    private faygolover.rppda.data.Look look = new faygolover.rppda.data.Look();
+    @Nullable
+    private faygolover.rppda.data.Look editLook;
+    /** Кому правим вид: −1 — новый КПК в руке, иначе ID учётки (системный КПК). */
+    private int lookTarget = -1;
+    private Page lookReturn = Page.REGISTER;
+    @Nullable
+    private EditBox modelBox;
+    private boolean gm, character, signalOk = true;
     /** Вид, заданный сервером: "" — выбирает игрок, иначе "modern"/"retro". */
     private String forcedStyle = "";
     /** Нажатая клавиша корпуса (−1 — нет) и чем: мышью держат, пока не отпустят. */
@@ -126,17 +137,19 @@ public class PdaScreen extends Screen {
     @Override
     protected void init() {
         retro = styleRetro();
-        themedSystem = system;
-        Ui.theme(retro, system);
+        themedSystem = systemSkin();
+        faygolover.rppda.data.Look shown = shownLook();
+        Ui.theme(retro, themedSystem, shown.screen, shown.accent);
+        themeKey = themeKey();
         if (retro) {
             // Корпус: полоса с названием сверху, экран, внизу клавиши.
             w = Math.min(360, width - 8);
             h = Math.min(254, height - 8);
             x0 = (width - w) / 2;
             y0 = (height - h) / 2;
-            sx = x0 + 12;
+            sx = x0 + 18;
             sy = y0 + 18;
-            sw = w - 24;
+            sw = w - 36;
             sh = h - 18 - 48;
             cx = sx + 4;
             cy = sy + 13;
@@ -162,7 +175,26 @@ public class PdaScreen extends Screen {
         rebuild();
     }
 
+    /** Какой вид показываем: правка на странице «Внешний вид» или вид этого КПК. */
+    private faygolover.rppda.data.Look shownLook() {
+        return page == Page.LOOK && editLook != null ? editLook : look;
+    }
+
+    /** Корпус системного КПК (красный, янтарный экран) — кроме страницы, где ГМ правит чужой вид. */
+    private boolean systemSkin() {
+        return system && page != Page.LOOK;
+    }
+
+    private String themeKey() {
+        faygolover.rppda.data.Look l = shownLook();
+        return styleRetro() + "/" + systemSkin() + "/" + l.screen + "/" + l.accent;
+    }
+
     private boolean styleRetro() {
+        // Вид этого КПК, заданный ГМом, главнее настройки сервера и выбора игрока.
+        String own = shownLook().style;
+        if (!systemSkin() && own.equals("retro")) return true;
+        if (!systemSkin() && own.equals("modern")) return false;
         if (forcedStyle.equals("retro")) return true;
         if (forcedStyle.equals("modern")) return false;
         return PdaClientConfig.retro();
@@ -170,7 +202,7 @@ public class PdaScreen extends Screen {
 
     /** Вид или корпус (обычный/системный) поменялся — пересобрать окно. */
     private boolean refreshTheme() {
-        if (styleRetro() == retro && system == themedSystem) return false;
+        if (themeKey().equals(themeKey)) return false;
         rebuildWidgets();
         return true;
     }
@@ -187,12 +219,16 @@ public class PdaScreen extends Screen {
         switch (op) {
             case "register" -> {
                 forcedStyle = d.getString("style");
+                look = faygolover.rppda.data.Look.load(d.getCompound("look"));
+                gm = d.getBoolean("gm");
+                editLook = null;
                 system = false;
                 refreshTheme();
                 setPage(Page.REGISTER);
             }
             case "locked" -> {
                 forcedStyle = d.getString("style");
+                look = faygolover.rppda.data.Look.load(d.getCompound("look"));
                 system = false;
                 refreshTheme();
                 lockedName = d.getString("name");
@@ -276,6 +312,7 @@ public class PdaScreen extends Screen {
             }
             case "sys.account" -> {
                 CompoundTag a = d.getCompound("acc");
+                if (page == Page.LOOK) return;
                 sysAcc = a;
                 boolean found = false;
                 for (int i = 0; i < sysAccounts.size(); i++) {
@@ -301,6 +338,10 @@ public class PdaScreen extends Screen {
         admin = d.getBoolean("admin");
         hasPw = d.getBoolean("pw");
         silent = d.getBoolean("silent");
+        look = d.contains("look") ? faygolover.rppda.data.Look.load(d.getCompound("look")) : new faygolover.rppda.data.Look();
+        gm = d.getBoolean("admin");
+        character = d.getBoolean("character");
+        signalOk = !d.contains("signal") || d.getBoolean("signal");
         if (d.contains("maxLen")) maxLen = d.getInt("maxLen");
         chats.clear();
         chats.addAll(list(d, "chats"));
@@ -367,12 +408,18 @@ public class PdaScreen extends Screen {
     private void rebuild() {
         if (input != null) inputDraft = input.getValue();
         clearWidgets();
-        promptA = promptB = input = password = search = null;
+        promptA = promptB = input = password = search = modelBox = null;
         if (page == Page.WAIT) return;
         if (page == Page.REGISTER) {
             addRenderableWidget(new IconButton(sx + sw / 2 - 70, sy + sh / 2 + 10, 140, 20, Icon.CHECK,
                     Component.translatable("rppda.btn.register"), Component.translatable("rppda.btn.register"),
                     b -> ClientPda.send("register", new CompoundTag())));
+            if (gm) addRenderableWidget(new IconButton(sx + sw - 22, sy + 14, Icon.BRUSH, Component.translatable("rppda.btn.look"),
+                    b -> openLook(-1, Page.REGISTER)));
+            return;
+        }
+        if (page == Page.LOOK && lookTarget == -1) {
+            lookWidgets();
             return;
         }
         if (page == Page.LOCKED) {
@@ -410,8 +457,12 @@ public class PdaScreen extends Screen {
                 addRenderableWidget(search);
                 toolbarButton(0, Icon.PLUS, "rppda.btn.npc", () -> openPrompt(Prompt.NPC, 0));
                 toolbarButton(1, Icon.REFRESH, "rppda.btn.refresh", () -> send("sys.accounts", t -> t.putString("q", sysQuery)));
+                IconButton mask = toolbarButton(2, Icon.MASK, character ? "rppda.btn.character_off" : "rppda.btn.character_on",
+                        () -> send("sys.character", t -> t.putBoolean("on", !character)));
+                if (character) mask.color = Ui.GOLD;
             }
             case SYS_ACCOUNT -> sysAccountWidgets();
+            case LOOK -> lookWidgets();
             case SYS_CHATS -> toolbarButton(0, Icon.REFRESH, "rppda.btn.refresh", () -> send("sys.chats", t -> {}));
             case SYS_LOG -> toolbarButton(0, Icon.REFRESH, "rppda.btn.refresh", () -> send("sys.log", t -> {}));
             default -> {}
@@ -497,7 +548,7 @@ public class PdaScreen extends Screen {
             if (!known && peer != 0) toolbarButton(n++, Icon.PERSON_ADD, "rppda.btn.add_contact",
                     () -> openPrompt(Prompt.ADD_CONTACT, peer));
         }
-        if (chatRow.getBoolean("write")) {
+        if (canWrite()) {
             int iy = cy + ch - 16;
             input = retro ? new EditBox(font, cx + 12, iy + 4, cw - 34, 10, Component.translatable("rppda.hint.message"))
                     : new EditBox(font, cx + 2, iy, cw - 24, 15, Component.translatable("rppda.hint.message"));
@@ -546,8 +597,9 @@ public class PdaScreen extends Screen {
             addRenderableWidget(new IconButton(bx + 40, by, Icon.LOCK, Component.translatable("rppda.btn.lock"),
                     b -> ClientPda.send("lock", new CompoundTag())));
         }
-        boolean forced = !forcedStyle.isEmpty();
-        IconButton style = new IconButton(bx, by + 2 * st, Icon.EYE, Component.translatable(forced ? "rppda.btn.style_forced"
+        boolean forced = !forcedStyle.isEmpty() || !look.style.isEmpty();
+        IconButton style = new IconButton(bx, by + 2 * st, Icon.EYE, Component.translatable(!look.style.isEmpty() ? "rppda.btn.style_device"
+                : forced ? "rppda.btn.style_forced"
                 : retro ? "rppda.btn.style_modern" : "rppda.btn.style_retro"), b -> {
             PdaClientConfig.setRetro(!retro);
             rebuildWidgets();
@@ -578,6 +630,21 @@ public class PdaScreen extends Screen {
                 acts.add(new Object[]{Icon.TELEPORT, "rppda.btn.tp", (Runnable) () -> send("sys.tp", t -> t.putInt("id", id))});
             if (sysAcc.getString("kind").equals("NPC"))
                 acts.add(new Object[]{Icon.EDIT, "rppda.btn.rename_npc", (Runnable) () -> openPrompt(Prompt.NPC_RENAME, id)});
+            acts.add(new Object[]{Icon.BRUSH, "rppda.btn.look", (Runnable) () -> openLook(id, Page.SYS_ACCOUNT)});
+            boolean sig = !sysAcc.contains("signal") || sysAcc.getBoolean("signal");
+            acts.add(new Object[]{sig ? Icon.SIGNAL : Icon.NO_SIGNAL, sig ? "rppda.btn.signal_off" : "rppda.btn.signal_on",
+                    (Runnable) () -> send("sys.signal", t -> {
+                        t.putInt("id", id);
+                        t.putBoolean("on", !sig);
+                    })});
+            if (sysAcc.contains("ownerSignal")) {
+                boolean os = sysAcc.getBoolean("ownerSignal");
+                acts.add(new Object[]{os ? Icon.SIGNAL : Icon.NO_SIGNAL, os ? "rppda.btn.owner_signal_off" : "rppda.btn.owner_signal_on",
+                        (Runnable) () -> send("sys.signalOwner", t -> {
+                            t.putInt("id", id);
+                            t.putBoolean("on", !os);
+                        })});
+            }
         }
         for (Object[] a : acts) {
             Runnable r = (Runnable) a[2];
@@ -857,7 +924,7 @@ public class PdaScreen extends Screen {
     public void render(GuiGraphics g, int mx, int my, float pt) {
         renderBackground(g);
         hots.clear();
-        boolean sys = system;
+        boolean sys = systemSkin();
         if (retro) retroBody(g, mx, my);
         else {
         // Корпус.
@@ -867,7 +934,7 @@ public class PdaScreen extends Screen {
         g.fill(x0, y0, x0 + 1, y0 + h, Ui.BODY_LIGHT);
         g.fill(sx - 1, sy - 1, sx + sw + 1, sy + sh + 1, 0xFF000000);
         g.fill(sx, sy, sx + sw, sy + sh, Ui.SCREEN);
-        g.fill(x0 + w / 2 - 12, y0 + h - 5, x0 + w / 2 + 12, y0 + h - 3, sys ? 0xFF7A2A2A : 0xFF2C5C88);
+        g.fill(x0 + w / 2 - 12, y0 + h - 5, x0 + w / 2 + 12, y0 + h - 3, sys ? 0xFF7A2A2A : Ui.ACCENT_DARK);
         }
 
         if (page == Page.WAIT) {
@@ -895,6 +962,7 @@ public class PdaScreen extends Screen {
                 case SYS_ACCOUNT -> renderSysAccount(g);
                 case SYS_CHATS -> renderSysChats(g, mx, my);
                 case SYS_LOG -> renderSysLog(g);
+                case LOOK -> renderLook(g, mx, my);
                 default -> {}
             }
             if (prompt != Prompt.NONE) g.fill(cx, cy + 19, cx + cw, cy + 39, Ui.PANEL);
@@ -920,7 +988,7 @@ public class PdaScreen extends Screen {
             txt(g, toast, tx + 5, ty + 3, Ui.TEXT, false);
             g.pose().popPose();
         }
-        if (retro) crt(g);
+        if (retro && Ui.crt) crt(g);
         hoverTooltip(g, mx, my);
     }
 
@@ -945,6 +1013,12 @@ public class PdaScreen extends Screen {
     }
 
     private void statusBar(GuiGraphics g) {
+        if (page == Page.LOOK && lookTarget == -1) {
+            g.fill(sx, sy, sx + sw, sy + (retro ? 11 : 12), retro ? Ui.BAR : Ui.BAR);
+            String t = Ui.up(Component.translatable("rppda.screen.new_device").getString());
+            g.drawString(font, t, sx + 3, sy + 2, retro ? Ui.SCREEN : Ui.TEXT, false);
+            return;
+        }
         if (retro) {
             // Инверсная строка, как на терминале.
             g.fill(sx, sy, sx + sw, sy + 11, Ui.BAR);
@@ -954,7 +1028,13 @@ public class PdaScreen extends Screen {
                     + (meId != 0 ? "  → " + Ui.up(meName) + " " + Ui.formatId(meId) : "")
                     : Ui.up(meName) + "  ID " + Ui.formatId(meId);
             g.drawString(font, Ui.fit(font, left, sw - 50), sx + 3, sy + 2, Ui.SCREEN, false);
-            if (silent && !system) Ui.icon(g, Icon.SILENT, sx + sw - font.width(clock) - 16, sy - 1, 12, Ui.SCREEN);
+            int rx = sx + sw - font.width(clock) - 6;
+            if (silent && !system) Ui.icon(g, Icon.SILENT, (rx -= 13), sy - 1, 12, Ui.SCREEN);
+            if (character) Ui.icon(g, Icon.MASK, (rx -= 13), sy - 1, 12, Ui.SCREEN);
+            if (!signalOk && !system && (System.currentTimeMillis() / 600) % 2 == 0) {
+                String ns = Ui.up(Component.translatable("rppda.screen.no_signal").getString());
+                g.drawString(font, ns, rx - font.width(ns) - 2, sy + 2, Ui.SCREEN, false);
+            }
             return;
         }
         g.fill(sx, sy, sx + sw, sy + 12, Ui.BAR);
@@ -973,7 +1053,14 @@ public class PdaScreen extends Screen {
             txt(g, meName, x, sy + 2, Ui.TEXT, false);
             txt(g, "ID " + Ui.formatId(meId), x + tw(meName) + 6, sy + 2, Ui.DIM, false);
         }
-        if (silent && !system) Ui.icon(g, Icon.SILENT, sx + sw - tw(clock) - 16, sy + 2, 9, Ui.DIM);
+        int rx = sx + sw - tw(clock) - 6;
+        if (silent && !system) Ui.icon(g, Icon.SILENT, (rx -= 12), sy + 2, 9, Ui.DIM);
+        if (character) Ui.icon(g, Icon.MASK, (rx -= 12), sy + 2, 9, Ui.GOLD);
+        if (!signalOk && !system) {
+            Ui.icon(g, Icon.NO_SIGNAL, (rx -= 12), sy + 2, 9, Ui.RED);
+            String ns = Component.translatable("rppda.screen.no_signal").getString();
+            g.drawString(font, ns, rx - font.width(ns) - 2, sy + 2, Ui.RED, false);
+        }
     }
 
     private void title(GuiGraphics g, Component c, int xOff) {
@@ -1203,11 +1290,12 @@ public class PdaScreen extends Screen {
         txt(g, sub, cx + 42, cy + 10, Ui.DIM, false);
         g.fill(cx, cy + 19, cx + cw, cy + 20, Ui.SEP);
 
-        boolean canWrite = chatRow.getBoolean("write");
+        boolean canWrite = canWrite();
         int top = cy + 21;
         int bottom = cy + ch - (canWrite ? 19 : 12) - (replySeq > 0 ? 14 : 0);
         if (!canWrite) {
-            Component ro = Component.translatable(chatRow.getBoolean("member") ? "rppda.chat.read_only_channel" : "rppda.chat.read_only");
+            Component ro = Component.translatable(!signalOk && chatRow.getBoolean("write") ? "rppda.chat.no_signal"
+                    : chatRow.getBoolean("member") ? "rppda.chat.read_only_channel" : "rppda.chat.read_only");
             txt(g, ro, cx + cw / 2 - tw(ro) / 2, cy + ch - 10, Ui.DIM, false);
         }
         layout();
@@ -1410,7 +1498,8 @@ public class PdaScreen extends Screen {
         Component snd = Component.translatable(silent ? "rppda.profile.silent" : "rppda.profile.sound");
         txt(g, snd, cx + 28, by + st + 5, Ui.DIM, false);
         Component look = Component.translatable(retro ? "rppda.profile.style_retro" : "rppda.profile.style_modern");
-        if (!forcedStyle.isEmpty()) look = look.copy().append(" ").append(Component.translatable("rppda.profile.style_server"));
+        if (!this.look.style.isEmpty()) look = look.copy().append(" ").append(Component.translatable("rppda.profile.style_device"));
+        else if (!forcedStyle.isEmpty()) look = look.copy().append(" ").append(Component.translatable("rppda.profile.style_server"));
         txt(g, look, cx + 28, by + 2 * st + 5, Ui.DIM, false);
         List<FormattedCharSequence> hint = font.split(Component.literal(Ui.up(Component.translatable("rppda.profile.hint").getString())), cw - 12);
         int hy = by + 3 * st + 4;
@@ -1458,6 +1547,8 @@ public class PdaScreen extends Screen {
         if (sysAcc.getBoolean("online")) flags.add(Component.translatable("rppda.sys.online").getString());
         if (sysAcc.getBoolean("pw")) flags.add(Component.translatable("rppda.sys.pw").getString());
         if (sysAcc.getBoolean("locked")) flags.add(Component.translatable("rppda.sys.locked").getString());
+        if (sysAcc.contains("signal") && !sysAcc.getBoolean("signal")) flags.add(Component.translatable("rppda.sys.no_signal").getString());
+        if (sysAcc.contains("ownerSignal") && !sysAcc.getBoolean("ownerSignal")) flags.add(Component.translatable("rppda.sys.owner_no_signal").getString());
         if (id != 0) flags.add(Component.translatable("rppda.sys.issue", sysAcc.getInt("issue")).getString());
         txt(g, fit(String.join(" · ", flags), cw - 50), cx + 44, cy + 44, Ui.GOLD, false);
         if (sysAcc.getLong("created") > 0)
@@ -1485,7 +1576,7 @@ public class PdaScreen extends Screen {
     private void txt(GuiGraphics g, Object s, int x, int y, int color, boolean unused) {
         FormattedCharSequence seq = s instanceof FormattedCharSequence f ? f : null;
         String str = seq != null ? null : Ui.up(s instanceof Component c ? c.getString() : String.valueOf(s));
-        if (retro && color != Ui.SCREEN) {
+        if (retro && Ui.crt && color != Ui.SCREEN) {
             int halo = (color & 0xFFFFFF) | 0x26000000;
             float[][] offs = {{0.5f, 0}, {-0.5f, 0}, {0, 0.5f}, {0, -0.5f}};
             for (float[] o : offs) {
@@ -1529,7 +1620,7 @@ public class PdaScreen extends Screen {
 
     private List<EditBox> framedBoxes() {
         List<EditBox> out = new ArrayList<>();
-        for (EditBox b : new EditBox[]{password, search, promptA, promptB}) if (b != null) out.add(b);
+        for (EditBox b : new EditBox[]{password, search, promptA, promptB, modelBox}) if (b != null) out.add(b);
         return out;
     }
 
@@ -1542,7 +1633,7 @@ public class PdaScreen extends Screen {
     /** Клавиши корпуса слева направо (F3, F4…). F1 и F2 не трогаем — это скрытие интерфейса и снимок экрана. */
     private List<Key> keys() {
         List<Key> k = new ArrayList<>();
-        boolean ready = page != Page.WAIT && page != Page.REGISTER && page != Page.LOCKED;
+        boolean ready = page != Page.WAIT && page != Page.REGISTER && page != Page.LOCKED && !(page == Page.LOOK && lookTarget == -1);
         k.add(new Key(Icon.CHATS, "rppda.page.chats", ready, () -> setPage(Page.CHATS)));
         k.add(new Key(Icon.CONTACTS, "rppda.page.contacts", ready, () -> setPage(Page.CONTACTS)));
         if (system) {
@@ -1552,7 +1643,7 @@ public class PdaScreen extends Screen {
             k.add(new Key(Icon.SYSTEM, "rppda.btn.back_system", ready && meId != 0, () -> send("sys.switch", t -> t.putInt("id", 0))));
         } else {
             k.add(new Key(Icon.PROFILE, "rppda.page.profile", ready, () -> setPage(Page.PROFILE)));
-            k.add(new Key(Icon.BACK, "rppda.btn.back", ready && canGoBack(), this::goBack));
+            k.add(new Key(Icon.BACK, "rppda.btn.back", (ready || page == Page.LOOK) && canGoBack(), this::goBack));
             k.add(new Key(Icon.LOCK, "rppda.btn.lock", ready && hasPw, () -> ClientPda.send("lock", new CompoundTag())));
         }
         k.add(new Key(Icon.CLOSE, "rppda.btn.close", true, this::onClose));
@@ -1560,7 +1651,7 @@ public class PdaScreen extends Screen {
     }
 
     private boolean canGoBack() {
-        return prompt != Prompt.NONE || page == Page.CHAT || page == Page.MEMBERS || page == Page.SYS_ACCOUNT;
+        return prompt != Prompt.NONE || page == Page.CHAT || page == Page.MEMBERS || page == Page.SYS_ACCOUNT || page == Page.LOOK;
     }
 
     private void goBack() {
@@ -1576,6 +1667,7 @@ public class PdaScreen extends Screen {
             }
             case MEMBERS -> setPage(Page.CHAT);
             case SYS_ACCOUNT -> setPage(Page.SYS_ACCOUNTS);
+            case LOOK -> cancelLook();
             default -> {}
         }
     }
@@ -1617,6 +1709,11 @@ public class PdaScreen extends Screen {
         return true;
     }
 
+    /** Для снимков: открыть «Внешний вид» нового КПК. */
+    void openLookForShot() {
+        openLook(-1, Page.REGISTER);
+    }
+
     /** Для снимков: показать клавишу нажатой без действия. */
     void holdKeyForShot(int i) {
         heldKey = i;
@@ -1624,31 +1721,51 @@ public class PdaScreen extends Screen {
     }
 
     private void retroBody(GuiGraphics g, int mx, int my) {
-        // Корпус со срезанными углами.
-        g.fill(x0 + 3, y0, x0 + w - 3, y0 + h, Ui.BODY);
-        g.fill(x0, y0 + 3, x0 + w, y0 + h - 3, Ui.BODY);
-        g.fill(x0 + 1, y0 + 1, x0 + w - 1, y0 + h - 1, Ui.BODY);
-        g.fill(x0 + 3, y0, x0 + w - 3, y0 + 1, Ui.BODY_LIGHT);
-        g.fill(x0, y0 + 3, x0 + 1, y0 + h - 3, Ui.BODY_LIGHT);
-        g.fill(x0 + w - 1, y0 + 3, x0 + w, y0 + h - 3, Ui.BODY_DARK);
-        g.fill(x0 + 3, y0 + h - 1, x0 + w - 3, y0 + h, Ui.BODY_DARK);
-        int label = system ? 0xFF3C1412 : 0xFF50483C;
-        g.drawString(font, Component.translatable(system ? "rppda.body.system" : "rppda.body.player"), x0 + 12, y0 + 5, label, false);
+        boolean sysSkin = systemSkin();
+        faygolover.rppda.data.Look shown = shownLook();
+        Skins.Skin skin = Skins.get(shown.body);
+        if (!sysSkin && skin.textured()) {
+            // Корпус с рисунком — текстура целиком (углы в ней уже срезаны).
+            com.mojang.blaze3d.systems.RenderSystem.enableBlend();
+            g.blit(skin.texture(), x0, y0, w, h, 0, 0, 360, 254, 360, 254);
+            g.fill(x0 + 3, y0, x0 + w - 3, y0 + 1, 0x46FFFFFF);
+            g.fill(x0, y0 + 3, x0 + 1, y0 + h - 3, 0x46FFFFFF);
+            g.fill(x0 + w - 1, y0 + 3, x0 + w, y0 + h - 3, 0x5A000000);
+            g.fill(x0 + 3, y0 + h - 1, x0 + w - 3, y0 + h, 0x5A000000);
+        } else {
+            int body = sysSkin ? Ui.BODY : skin.color();
+            int light = sysSkin ? Ui.BODY_LIGHT : shade(body, 1.18f), dark = sysSkin ? Ui.BODY_DARK : shade(body, 0.68f);
+            // Корпус со срезанными углами.
+            g.fill(x0 + 3, y0, x0 + w - 3, y0 + h, body);
+            g.fill(x0, y0 + 3, x0 + w, y0 + h - 3, body);
+            g.fill(x0 + 1, y0 + 1, x0 + w - 1, y0 + h - 1, body);
+            g.fill(x0 + 3, y0, x0 + w - 3, y0 + 1, light);
+            g.fill(x0, y0 + 3, x0 + 1, y0 + h - 3, light);
+            g.fill(x0 + w - 1, y0 + 3, x0 + w, y0 + h - 3, dark);
+            g.fill(x0 + 3, y0 + h - 1, x0 + w - 3, y0 + h, dark);
+        }
+        int label = sysSkin ? 0xFF3C1412 : skin.label();
+        Component model = sysSkin ? Component.translatable("rppda.body.system")
+                : shown.model.isEmpty() ? Component.translatable("rppda.model." + skin.id()) : Component.literal(shown.model);
+        g.drawString(font, model, x0 + (sysSkin ? 12 : skin.labelX() * w / 360), y0 + 5, label, false);
         // Решётка динамика и индикатор (мигает, когда есть непрочитанное).
-        for (int i = 0; i < 6; i++) g.fill(x0 + w - 70 + i * 6, y0 + 6, x0 + w - 67 + i * 6, y0 + 12, Ui.BODY_DARK);
+        for (int i = 0; i < 6; i++) g.fill(x0 + w - 70 + i * 6, y0 + 6, x0 + w - 67 + i * 6, y0 + 12, 0x66000000);
         boolean blink = !system && ClientPda.unread > 0 && (System.currentTimeMillis() / 500) % 2 == 0;
-        int led = system ? 0xFFFF3C28 : blink ? 0xFF1E5A1E : 0xFF5AFF5A;
+        int led = sysSkin ? 0xFFFF3C28 : !signalOk ? 0xFF5A1E1E : blink ? 0xFF1E5A1E : 0xFF5AFF5A;
         g.fill(x0 + w - 23, y0 + 5, x0 + w - 16, y0 + 12, 0xFF201E1C);
         g.fill(x0 + w - 22, y0 + 6, x0 + w - 17, y0 + 11, led);
         // Рамка экрана.
-        g.fill(sx - 7, sy - 6, sx + sw + 7, sy + sh + 6, 0xFF2A2724);
+        g.fill(sx - 7, sy - 6, sx + sw + 7, sy + sh + 6, sysSkin ? 0xFF2A2724 : skin.bezel());
         g.fill(sx - 7, sy - 6, sx + sw + 7, sy - 5, 0xFF181614);
         g.fill(sx - 1, sy - 1, sx + sw + 1, sy + sh + 1, 0xFF080A08);
         g.fill(sx, sy, sx + sw, sy + sh, Ui.SCREEN);
         // Клавиши.
         List<Key> ks = keys();
         int n = ks.size(), kw = keyW(n), ky = keyY();
-        int face = system ? 0xFF3C1816 : 0xFF46423C, top = system ? 0xFF64302C : 0xFF6E6A62, shadow = system ? 0xFF241010 : 0xFF2A2724;
+        boolean darkBody = !sysSkin && skin.dark();
+        int face = sysSkin ? 0xFF3C1816 : darkBody ? 0xFF5E5A54 : 0xFF46423C;
+        int top = sysSkin ? 0xFF64302C : darkBody ? 0xFF8A867E : 0xFF6E6A62;
+        int shadow = sysSkin ? 0xFF241010 : darkBody ? 0xFF161412 : 0xFF2A2724;
         for (int i = 0; i < n; i++) {
             Key k = ks.get(i);
             int kx = keyX(i, n);
@@ -1662,6 +1779,151 @@ public class PdaScreen extends Screen {
             String f = "F" + (3 + i);
             g.drawString(font, f, kx + 2, ky + KEY_H + 5, label, false);
             hots.add(new Hot(kx, ky, kw, KEY_H + 2, "key" + i + k.icon, Component.translatable(k.tip), () -> {}));
+        }
+    }
+
+    private static int shade(int c, float k) {
+        int r = Math.min(255, (int) (((c >> 16) & 255) * k));
+        int g = Math.min(255, (int) (((c >> 8) & 255) * k));
+        int b = Math.min(255, (int) ((c & 255) * k));
+        return 0xFF000000 | (r << 16) | (g << 8) | b;
+    }
+
+    private boolean canWrite() {
+        if (chatRow == null || !chatRow.getBoolean("write")) return false;
+        // Без связи — только диалог с Системой.
+        return signalOk || system || chatRow.getString("type").equals("DM") && chatRow.contains("peer") && chatRow.getInt("peer") == 0;
+    }
+
+    // ================================================================ «Внешний вид» (ГМ)
+
+    private void openLook(int target, Page from) {
+        lookTarget = target;
+        lookReturn = from;
+        editLook = target == -1 ? look.copy() : sysAcc == null ? new faygolover.rppda.data.Look()
+                : faygolover.rppda.data.Look.load(sysAcc.getCompound("look"));
+        page = Page.LOOK;
+        prompt = Prompt.NONE;
+        rebuildWidgets();
+    }
+
+    private void cancelLook() {
+        editLook = null;
+        page = lookReturn;
+        rebuildWidgets();
+    }
+
+    private void applyLook() {
+        if (editLook == null) return;
+        CompoundTag l = editLook.save();
+        if (lookTarget == -1) send("look.hand", t -> t.put("look", l));
+        else send("sys.look", t -> {
+            t.putInt("id", lookTarget);
+            t.put("look", l);
+        });
+        if (lookTarget != -1 && sysAcc != null) sysAcc.put("look", l);
+        editLook = null;
+        page = lookReturn;
+        rebuildWidgets();
+    }
+
+    /** Поменять правку и сразу показать на корпусе/экране. */
+    private void editLook(java.util.function.Consumer<faygolover.rppda.data.Look> change) {
+        if (editLook == null) return;
+        change.accept(editLook);
+        rebuildWidgets();
+    }
+
+    private void lookWidgets() {
+        toolbarButton(0, Icon.CLOSE, "rppda.btn.cancel", this::cancelLook);
+        toolbarButton(1, Icon.CHECK, "rppda.btn.ok", this::applyLook);
+        if (editLook == null) return;
+        modelBox = new EditBox(font, cx + 64, cy + 98, 150, retro ? 10 : 14, Component.translatable("rppda.look.model"));
+        modelBox.setMaxLength(faygolover.rppda.data.Look.MODEL_MAX);
+        modelBox.setHint(Component.literal(Ui.up(Component.translatable("rppda.model." + editLook.body).getString()))
+                .withStyle(Style.EMPTY.withColor(Ui.DIM & 0xFFFFFF)));
+        modelBox.setValue(editLook.model);
+        box(modelBox);
+        modelBox.setResponder(v -> editLook.model = v.strip());
+        addRenderableWidget(modelBox);
+    }
+
+    /** Переключатель: выбранный — инверсией/акцентом. */
+    private int chip(GuiGraphics g, int x, int y, String label, boolean on, String key, Runnable run) {
+        String l = Ui.up(label);
+        int wdt = font.width(l) + 6;
+        if (on) {
+            g.fill(x, y - 2, x + wdt, y + 9, retro ? Ui.TEXT : Ui.ACCENT);
+            g.drawString(font, l, x + 3, y, retro ? Ui.SCREEN : 0xFFFFFFFF, false);
+        } else {
+            g.renderOutline(x, y - 2, wdt, 11, Ui.DIM);
+            txt(g, l, x + 3, y, Ui.TEXT, false);
+        }
+        hots.add(new Hot(x, y - 2, wdt, 11, key, null, run));
+        return x + wdt + 4;
+    }
+
+    private void renderLook(GuiGraphics g, int mx, int my) {
+        if (editLook == null) return;
+        faygolover.rppda.data.Look l = editLook;
+        String who = lookTarget == -1 ? Component.translatable("rppda.screen.new_device").getString()
+                : sysAcc == null ? "" : sysAcc.getString("name");
+        title(g, Component.literal(Component.translatable("rppda.page.look").getString() + " · " + who), 4);
+        int lx = cx + 4, vx = cx + 64;
+        // Вид окна.
+        int y = cy + 24;
+        txt(g, Component.translatable("rppda.look.style"), lx, y, Ui.DIM, false);
+        int x = vx;
+        String[] styles = {"", "retro", "modern"};
+        for (String st : styles) {
+            String key = "rppda.look.style." + (st.isEmpty() ? "default" : st);
+            x = chip(g, x, y, Component.translatable(key).getString(), l.style.equals(st), "st" + st, () -> editLook(e -> e.style = st));
+        }
+        // Корпус.
+        y = cy + 42;
+        txt(g, Component.translatable("rppda.look.body"), lx, y, Ui.DIM, false);
+        txt(g, Component.translatable("rppda.skin." + l.body), vx, y, Ui.TEXT, false);
+        int sy0 = y + 11;
+        List<String> bodies = faygolover.rppda.data.Look.BODIES;
+        for (int i = 0; i < bodies.size(); i++) {
+            String b = bodies.get(i);
+            int bx = lx + i * 16;
+            com.mojang.blaze3d.systems.RenderSystem.enableBlend();
+            g.blit(Skins.SWATCHES, bx, sy0, 14, 10, (i % 8) * 28, (i / 8) * 20, 28, 20, 224, 60);
+            if (b.equals(l.body)) g.renderOutline(bx - 1, sy0 - 1, 16, 12, Ui.TEXT);
+            hots.add(new Hot(bx - 1, sy0 - 1, 16, 12, "body" + b, Component.translatable("rppda.skin." + b), () -> editLook(e -> e.body = b)));
+        }
+        // Экран (ретро) и акцент (современный).
+        y = cy + 72;
+        txt(g, Component.translatable("rppda.look.screen"), lx, y, Ui.DIM, false);
+        x = vx;
+        for (String sc : faygolover.rppda.data.Look.SCREENS) {
+            int[] c = Ui.screenColors(sc);
+            g.fill(x, y - 2, x + 20, y + 9, c[0]);
+            g.fill(x + 3, y + 1, x + 17, y + 3, c[1]);
+            g.fill(x + 3, y + 5, x + 12, y + 6, c[3]);
+            g.renderOutline(x - 1, y - 3, 22, 13, sc.equals(l.screen) ? Ui.TEXT : Ui.DIM);
+            hots.add(new Hot(x - 1, y - 3, 22, 13, "scr" + sc, Component.translatable("rppda.screen." + sc), () -> editLook(e -> e.screen = sc)));
+            x += 25;
+        }
+        x += 8;
+        txt(g, Component.translatable("rppda.look.accent"), x, y, Ui.DIM, false);
+        x += tw(Component.translatable("rppda.look.accent")) + 6;
+        for (String ac : faygolover.rppda.data.Look.ACCENTS) {
+            g.fill(x, y - 2, x + 11, y + 9, Ui.accentColor(ac));
+            g.renderOutline(x - 1, y - 3, 13, 13, ac.equals(l.accent) ? Ui.TEXT : Ui.DIM);
+            hots.add(new Hot(x - 1, y - 3, 13, 13, "acc" + ac, Component.translatable("rppda.accent." + ac), () -> editLook(e -> e.accent = ac)));
+            x += 16;
+        }
+        // Название модели.
+        y = cy + 100;
+        txt(g, Component.translatable("rppda.look.model"), lx, y, Ui.DIM, false);
+        List<FormattedCharSequence> hint = font.split(Component.literal(Ui.up(Component.translatable("rppda.look.preview").getString())), cw - 10);
+        int hy = cy + 118;
+        for (FormattedCharSequence line : hint) {
+            if (hy + 9 > cy + ch) break;
+            txt(g, line, lx, hy, Ui.HINT, false);
+            hy += 10;
         }
     }
 

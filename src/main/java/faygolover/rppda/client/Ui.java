@@ -25,22 +25,61 @@ public final class Ui {
     public static final ResourceLocation ICONS = new ResourceLocation(RpPda.MODID, "textures/gui/icons.png");
     /** Ретро: попиксельные значки 12×12 без сглаживания (scripts/gen_retro_icons.py). */
     public static final ResourceLocation ICONS_RETRO = new ResourceLocation(RpPda.MODID, "textures/gui/icons_retro.png");
-    private static final int ATLAS_W = 128, ATLAS_H = 80;
+    private static final int ATLAS_W = 128, ATLAS_H = 96;
 
     /** Вид окна: современный или ретро (80-е, люминофор). Ставит открытое окно КПК ({@link #theme}). */
     public static boolean retro;
+    /** Экран с кинескопом (свечение, развёртка); у ЖК-экрана — нет. */
+    public static boolean crt = true;
+    /** Цвет акцента современного вида (для полоски под экраном и т. п.). */
+    public static int ACCENT_DARK;
 
     // Цвета текущего вида (меняет {@link #theme}).
     public static int BODY, BODY_LIGHT, BODY_DARK, SCREEN, PANEL, ROW_HOVER, TEXT, DIM, ACCENT, RED, GREEN, GOLD,
             OWN, OTHER, SYSTEM_BODY, SEP, BAR, TIME, QUOTE, HINT, TOAST_BG, TILE_GLOBE, TILE_GROUP, TILE_INVITE, DATE_BG;
 
+    public static void theme(boolean retroStyle, boolean system) {
+        theme(retroStyle, system, "green", "blue");
+    }
+
+    private static final java.util.Map<String, int[]> SCREENS = java.util.Map.of(
+            // фон, текст, тусклый, средний, панель
+            "green", new int[]{0xFF061408, 0xFF78FF8C, 0xFF2E8C40, 0xFF54C868, 0xFF0C2410},
+            "white", new int[]{0xFF0A0C10, 0xFFE8EEF6, 0xFF767E8C, 0xFFBAC2D0, 0xFF161A22},
+            "blue", new int[]{0xFF040E18, 0xFF6ED2FF, 0xFF286E96, 0xFF50AADC, 0xFF0A1C2C},
+            "lcd", new int[]{0xFF98A270, 0xFF1E2816, 0xFF5C6842, 0xFF384428, 0xFF8A9464},
+            "synth", new int[]{0xFF160626, 0xFFFF78D6, 0xFF883A96, 0xFF5AE2FF, 0xFF24103A},
+            "amber", new int[]{0xFF180C02, 0xFFFFB840, 0xFF965C1C, 0xFFD28C2C, 0xFF2A1606});
+    private static final java.util.Map<String, Integer> ACCENTS = java.util.Map.of(
+            "blue", 0xFF4FA3FF, "green", 0xFF4FD07A, "orange", 0xFFFF9A3C, "violet", 0xFFA77BFF, "neon", 0xFFFF4FC8);
+
     static {
+        // После таблиц палитр: theme() ими пользуется.
         theme(false, false);
     }
 
-    /** Цвета вида. Ретро: зелёный люминофор, у системного КПК — янтарный; «красный/жёлтый/зелёный» — оттенки его же. */
-    public static void theme(boolean retroStyle, boolean system) {
+    public static int[] screenColors(String id) {
+        return SCREENS.getOrDefault(id, SCREENS.get("green"));
+    }
+
+    public static int accentColor(String id) {
+        return ACCENTS.getOrDefault(id, 0xFF4FA3FF);
+    }
+
+    private static int mix(int a, int b, float k) {
+        int r = (int) (((a >> 16) & 255) * (1 - k) + ((b >> 16) & 255) * k);
+        int g = (int) (((a >> 8) & 255) * (1 - k) + ((b >> 8) & 255) * k);
+        int bl = (int) ((a & 255) * (1 - k) + (b & 255) * k);
+        return 0xFF000000 | (r << 16) | (g << 8) | bl;
+    }
+
+    /**
+     * Цвета вида. Ретро: экран {@code screen} (у системного КПК — всегда янтарный); «красный/жёлтый/зелёный» —
+     * оттенки его же. Современный: акцент {@code accent}.
+     */
+    public static void theme(boolean retroStyle, boolean system, String screen, String accent) {
         retro = retroStyle;
+        crt = true;
         if (!retroStyle) {
             BODY = 0xFF23272E; BODY_LIGHT = 0xFF3A404A; BODY_DARK = 0xFF15181D;
             SCREEN = 0xFF0E1621; PANEL = 0xFF17212B; ROW_HOVER = 0x22FFFFFF;
@@ -48,14 +87,16 @@ public final class Ui {
             OWN = 0xFF2B5278; OTHER = 0xFF1F2A36; SYSTEM_BODY = 0xFF2E2224;
             SEP = 0xFF1E2833; BAR = 0xFF0A1018; TIME = 0xFF7F93A8; QUOTE = 0xFF9FB3C8; HINT = 0xFF5E6B78;
             TOAST_BG = 0xEE10161D; TILE_GLOBE = 0xFF24557F; TILE_GROUP = 0xFF3C4A5C; TILE_INVITE = 0xFF5A4A1E; DATE_BG = 0xFF1A2430;
+            int acc = system ? 0xFF4FA3FF : accentColor(accent);
+            ACCENT = acc;
+            OWN = mix(acc, SCREEN, 0.62f);
+            TILE_GLOBE = mix(acc, SCREEN, 0.5f);
+            ACCENT_DARK = mix(acc, BODY, 0.45f);
             return;
         }
-        int fg, dim, mid, bg, panel;
-        if (system) {
-            fg = 0xFFFFB840; dim = 0xFF965C1C; mid = 0xFFD28C2C; bg = 0xFF180C02; panel = 0xFF2A1606;
-        } else {
-            fg = 0xFF78FF8C; dim = 0xFF2E8C40; mid = 0xFF54C868; bg = 0xFF061408; panel = 0xFF0C2410;
-        }
+        int[] c = screenColors(system ? "amber" : screen);
+        int bg = c[0], fg = c[1], dim = c[2], mid = c[3], panel = c[4];
+        crt = system || !screen.equals("lcd");
         SCREEN = bg; PANEL = panel; ROW_HOVER = (fg & 0xFFFFFF) | 0x18000000;
         TEXT = fg; DIM = dim; ACCENT = mid; RED = fg; GREEN = mid; GOLD = fg;
         OWN = panel; OTHER = panel; SEP = dim; BAR = fg; TIME = dim; QUOTE = dim; HINT = dim;
@@ -75,7 +116,8 @@ public final class Ui {
         PLUS, GROUP, CHANNEL, BELL, PDA_ONLY, MUTE, MEMBERS, LEAVE,
         KICK, CROWN, REPLY, TRASH, COPY, KEY, SILENT, SOUND,
         ACCOUNTS, LOG, SWITCH, GIVE, TELEPORT, EDIT, BLOCK, CHECK,
-        SEARCH, MESSAGE, PDA, REFRESH, PERSON_ADD, SYSTEM, GLOBE, EYE
+        SEARCH, MESSAGE, PDA, REFRESH, PERSON_ADD, SYSTEM, GLOBE, EYE,
+        BRUSH, SIGNAL, NO_SIGNAL, MASK
     }
 
     public static void icon(GuiGraphics g, Icon icon, int x, int y, int color) {

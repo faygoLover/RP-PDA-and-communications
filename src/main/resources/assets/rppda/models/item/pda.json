@@ -1,4 +1,116 @@
 {
   "parent": "minecraft:item/generated",
-  "textures": { "layer0": "rppda:item/pda" }
+  "textures": {
+    "layer0": "rppda:item/pda"
+  },
+  "overrides": [
+    {
+      "predicate": {
+        "rppda:skin": 0.01
+      },
+      "model": "rppda:item/pda_graphite"
+    },
+    {
+      "predicate": {
+        "rppda:skin": 0.02
+      },
+      "model": "rppda:item/pda_olive"
+    },
+    {
+      "predicate": {
+        "rppda:skin": 0.03
+      },
+      "model": "rppda:item/pda_navy"
+    },
+    {
+      "predicate": {
+        "rppda:skin": 0.04
+      },
+      "model": "rppda:item/pda_white"
+    },
+    {
+      "predicate": {
+        "rppda:skin": 0.05
+      },
+      "model": "rppda:item/pda_khaki"
+    },
+    {
+      "predicate": {
+        "rppda:skin": 0.06
+      },
+      "model": "rppda:item/pda_orange"
+    },
+    {
+      "predicate": {
+        "rppda:skin": 0.07
+      },
+      "model": "rppda:item/pda_camo"
+    },
+    {
+      "predicate": {
+        "rppda:skin": 0.08
+      },
+      "model": "rppda:item/pda_wood"
+    },
+    {
+      "predicate": {
+        "rppda:skin": 0.09
+      },
+      "model": "rppda:item/pda_duo"
+    },
+    {
+      "predicate": {
+        "rppda:skin": 0.1
+      },
+      "model": "rppda:item/pda_worn"
+    },
+    {
+      "predicate": {
+        "rppda:skin": 0.11
+      },
+      "model": "rppda:item/pda_field"
+    },
+    {
+      "predicate": {
+        "rppda:skin": 0.12
+      },
+      "model": "rppda:item/pda_rainbow"
+    },
+    {
+      "predicate": {
+        "rppda:skin": 0.13
+      },
+      "model": "rppda:item/pda_sunset"
+    },
+    {
+      "predicate": {
+        "rppda:skin": 0.14
+      },
+      "model": "rppda:item/pda_neon"
+    },
+    {
+      "predicate": {
+        "rppda:skin": 0.15
+      },
+      "model": "rppda:item/pda_memphis"
+    },
+    {
+      "predicate": {
+        "rppda:skin": 0.16
+      },
+      "model": "rppda:item/pda_cassette"
+    },
+    {
+      "predicate": {
+        "rppda:skin": 0.17
+      },
+      "model": "rppda:item/pda_wave"
+    },
+    {
+      "predicate": {
+        "rppda:skin": 0.18
+      },
+      "model": "rppda:item/pda_disco"
+    }
+  ]
 }

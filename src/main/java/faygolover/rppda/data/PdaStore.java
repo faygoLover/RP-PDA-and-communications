@@ -59,6 +59,10 @@ public final class PdaStore {
     public final Deque<GmEntry> gmLog = new ArrayDeque<>();
     /** Игрок → учётка, с которой он был последний раз (куда слать {@code /tell}, пока его нет). */
     public final Map<UUID, Integer> lastAccount = new HashMap<>();
+    /** Игроки без связи (ГМ выключил): с какого момента. */
+    public final Map<UUID, Long> noSignalPlayers = new HashMap<>();
+    /** Админы в «режиме персонажа»: мод считает их обычными игроками. */
+    public final Set<UUID> characterMode = new HashSet<>();
     private int nextChatId = 2;
 
     private boolean accountsDirty, chatsDirty, miscDirty;
@@ -106,6 +110,9 @@ public final class PdaStore {
             }
             CompoundTag l = m.getCompound("last");
             for (String k : l.getAllKeys()) lastAccount.put(UUID.fromString(k), l.getInt(k));
+            CompoundTag ns = m.getCompound("noSignal");
+            for (String k : ns.getAllKeys()) noSignalPlayers.put(UUID.fromString(k), ns.getLong(k));
+            for (Tag t : m.getList("character", Tag.TAG_STRING)) characterMode.add(UUID.fromString(t.getAsString()));
         }
         system();
         global();
@@ -157,6 +164,12 @@ public final class PdaStore {
             CompoundTag l = new CompoundTag();
             lastAccount.forEach((k, v) -> l.putInt(k.toString(), v));
             t.put("last", l);
+            CompoundTag ns = new CompoundTag();
+            noSignalPlayers.forEach((k, v) -> ns.putLong(k.toString(), v));
+            t.put("noSignal", ns);
+            ListTag ch = new ListTag();
+            for (UUID u : characterMode) ch.add(net.minecraft.nbt.StringTag.valueOf(u.toString()));
+            t.put("character", ch);
             if (write(root.resolve("misc.dat"), t)) miscDirty = false;
         }
         for (ChatLog cl : logs.values()) if (cl.dirty) saveLog(cl);

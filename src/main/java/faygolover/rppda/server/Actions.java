@@ -38,6 +38,7 @@ public final class Actions {
             case "close" -> PdaServer.sessions.remove(sp.getUUID());
             case "register" -> register(sp, store);
             case "unlock" -> unlock(sp, store, d.getString("pw"));
+            case "look.hand" -> lookHand(sp, store, d);
             default -> {
                 PdaServer.Session s = PdaServer.sessions.get(sp.getUUID());
                 if (s == null || s.mode != PdaServer.Session.Mode.OPEN || !valid(sp, s, store)) {
@@ -83,7 +84,10 @@ public final class Actions {
         }
         String name = PdaServer.displayName(sp);
         Account a = store.createAccount(Account.Kind.PLAYER, name, sp.getUUID());
+        // Вид, что ГМ задал новому КПК, переходит в учётку.
+        a.look = PdaItem.look(stack);
         PdaItem.bind(stack, a.id, a.issue, a.name);
+        PdaItem.setLook(stack, a.look);
         PdaServer.flushPending(sp, a);
         store.setLastAccount(sp.getUUID(), a.id);
         PdaServer.open(sp, a);
@@ -148,7 +152,10 @@ public final class Actions {
                 s.openChat = c.id;
                 history(sp, s, store, c, 0);
                 if (c.has(me.id) && !s.gmSwitched() && !(s.system && c.type != Chat.Type.GLOBAL && !c.has(0))) {
-                    me.lastRead.put(c.id, c.lastSeq);
+                    long cut = Views.cut(sp, s);
+                    Message seen = cut == Long.MAX_VALUE || PdaServer.emergency(c) ? null : Views.lastVisible(store, c, cut);
+                    int upTo = cut == Long.MAX_VALUE || PdaServer.emergency(c) ? c.lastSeq : seen == null ? 0 : seen.seq;
+                    me.lastRead.put(c.id, Math.max(me.lastRead.getOrDefault(c.id, 0), upTo));
                     store.markAccounts();
                     if (!s.system) Messaging.sendUnread(sp);
                 }
@@ -162,7 +169,7 @@ public final class Actions {
                 Chat c = store.chat(d.getInt("chat"));
                 if (c == null) return;
                 String text = d.getString("text").strip();
-                String err = Messaging.check(me, c, text);
+                String err = Messaging.check(me, c, text, s.system ? null : sp);
                 if (err != null) {
                     toast(sp, err, true);
                     return;
@@ -186,6 +193,7 @@ public final class Actions {
                 if (!s.system) Messaging.sendUnread(sp);
             }
             case "dm" -> {
+                if (noSignal(sp, s)) return;
                 int id = d.getInt("id");
                 Account peer = store.account(id);
                 if (peer == null || peer.kind == Account.Kind.SYSTEM && !s.system) {
@@ -199,6 +207,7 @@ public final class Actions {
                 Net.send(sp, "goto", t);
             }
             case "group.create" -> {
+                if (noSignal(sp, s)) return;
                 String title = d.getString("title").strip();
                 if (title.isEmpty() || title.length() > TITLE_MAX) {
                     toast(sp, "rppda.err.title", true);
@@ -211,7 +220,10 @@ public final class Actions {
                 Net.send(sp, "goto", t);
             }
             case "group.invite", "group.kick", "group.admin", "group.rename", "group.leave", "group.members",
-                 "group.accept", "group.decline" -> group(sp, s, store, me, op, d);
+                 "group.accept", "group.decline" -> {
+                if (!op.equals("group.members") && noSignal(sp, s)) return;
+                group(sp, s, store, me, op, d);
+            }
             case "contact.add", "contact.label" -> {
                 int id = d.getInt("id");
                 Account o = store.account(id);
@@ -313,9 +325,84 @@ public final class Actions {
         t.putInt("chat", c.id);
         t.putInt("before", before);
         t.putBoolean("more", from > 1);
+        long cut = Views.cut(sp, s);
+        if (cut != Long.MAX_VALUE && !PdaServer.emergency(c)) {
+            // Без связи — только то, что пришло до её пропажи.
+            List<Message> seen = new ArrayList<>();
+            for (Message m : msgs) if (m.time <= cut) seen.add(m);
+            msgs = seen;
+        }
         t.put("msgs", Views.page(store, s, c, msgs));
-        t.put("row", Views.row(store, store.account(s.acting), c, s));
+        t.put("row", Views.row(store, store.account(s.acting), c, s, cut));
         Net.send(sp, "history", t);
+    }
+
+    /** Окно КПК без связи: сказать и вернуть true. */
+    private static boolean noSignal(ServerPlayer sp, PdaServer.Session s) {
+        if (s.system) return false;
+        Account dev = PdaServer.store.account(s.device);
+        if (dev == null || PdaServer.signal(sp, dev)) return false;
+        toast(sp, "rppda.err.no_signal", true);
+        return true;
+    }
+
+    // ---------------------------------------------------------------- внешний вид (ГМ)
+
+    /** ГМ задаёт вид новому (не зарегистрированному) КПК у себя в руке. */
+    private static void lookHand(ServerPlayer sp, PdaStore store, CompoundTag d) {
+        PdaServer.Session s = PdaServer.sessions.get(sp.getUUID());
+        if (!PdaServer.isGm(sp) || s == null || s.mode != PdaServer.Session.Mode.REGISTER) return;
+        ItemStack stack = sp.getItemInHand(s.hand);
+        if (!Devices.isPda(stack) || PdaItem.account(stack) != 0) return;
+        PdaItem.setLook(stack, faygolover.rppda.data.Look.load(d.getCompound("look")));
+        PdaServer.sendRegister(sp, stack);
+    }
+
+    /** Вид учётки (из системного КПК или командой): у всех, кто держит её КПК, окно обновится. */
+    public static void setLook(PdaStore store, Account a, faygolover.rppda.data.Look look, String gm) {
+        if (a.look.same(look)) return;
+        a.look = look;
+        store.markAccounts();
+        store.gmLog(gm, "look", label(a));
+        if (PdaServer.server == null) return;
+        for (ServerPlayer p : PdaServer.server.getPlayerList().getPlayers()) {
+            PdaServer.Session o = PdaServer.sessions.get(p.getUUID());
+            if (o != null && !o.system && o.device == a.id && o.mode == PdaServer.Session.Mode.OPEN) Views.sendState(p, o);
+            PdaServer.scan(p);
+        }
+    }
+
+    /** Связь на КПК (учётке). */
+    public static void setSignal(PdaStore store, Account a, boolean on, String gm) {
+        if (a.noSignal == !on) return;
+        a.noSignal = !on;
+        a.noSignalSince = on ? 0 : System.currentTimeMillis();
+        store.markAccounts();
+        store.gmLog(gm, on ? "signal_on" : "signal_off", label(a));
+        PdaServer.signalChanged(a.id, null);
+    }
+
+    /** Связь у игрока (любой КПК у него в руках). */
+    public static void setPlayerSignal(PdaStore store, java.util.UUID player, String name, boolean on, String gm) {
+        boolean has = !store.noSignalPlayers.containsKey(player);
+        if (has == on) return;
+        if (on) store.noSignalPlayers.remove(player);
+        else store.noSignalPlayers.put(player, System.currentTimeMillis());
+        store.markMisc();
+        store.gmLog(gm, on ? "signal_on" : "signal_off", name);
+        PdaServer.signalChanged(null, player);
+    }
+
+    /** Режим персонажа: админ — как обычный игрок (системный КПК и команды остаются). */
+    public static void setCharacter(PdaStore store, ServerPlayer sp, boolean on) {
+        if (on) store.characterMode.add(sp.getUUID());
+        else store.characterMode.remove(sp.getUUID());
+        store.markMisc();
+        store.gmLog(sp.getGameProfile().getName(), on ? "character_on" : "character_off", "");
+        sp.displayClientMessage(net.minecraft.network.chat.Component.translatable(on ? "rppda.msg.character_on" : "rppda.msg.character_off")
+                .withStyle(net.minecraft.ChatFormatting.GOLD), true);
+        PdaServer.scan(sp);
+        Messaging.sendUnread(sp);
     }
 
     private static void delete(ServerPlayer sp, PdaServer.Session s, PdaStore store, Account me, CompoundTag d) {
@@ -561,6 +648,7 @@ public final class Actions {
                 store.markAccounts();
                 ItemStack stack = new ItemStack(ModItems.PDA.get());
                 PdaItem.bind(stack, a.id, a.issue, a.name);
+                PdaItem.setLook(stack, a.look);
                 if (!sp.getInventory().add(stack)) sp.drop(stack, false);
                 store.gmLog(gm, "give", label(a));
                 toast(sp, "rppda.toast.given", false, a.name);
@@ -605,10 +693,33 @@ public final class Actions {
                 Account a = store.createAccount(Account.Kind.NPC, name, null);
                 ItemStack stack = new ItemStack(ModItems.PDA.get());
                 PdaItem.bind(stack, a.id, a.issue, a.name);
+                PdaItem.setLook(stack, a.look);
                 if (!sp.getInventory().add(stack)) sp.drop(stack, false);
                 store.gmLog(gm, "npc", label(a));
                 toast(sp, "rppda.toast.npc", false, a.name, PdaItem.formatId(a.id));
                 refreshAccount(sp, store, a);
+            }
+            case "sys.look" -> {
+                Account a = target(store, d);
+                if (a == null) return;
+                setLook(store, a, faygolover.rppda.data.Look.load(d.getCompound("look")), gm);
+                refreshAccount(sp, store, a);
+            }
+            case "sys.signal" -> {
+                Account a = target(store, d);
+                if (a == null) return;
+                setSignal(store, a, d.getBoolean("on"), gm);
+                refreshAccount(sp, store, a);
+            }
+            case "sys.signalOwner" -> {
+                Account a = target(store, d);
+                if (a == null || a.owner == null) return;
+                setPlayerSignal(store, a.owner, a.name, d.getBoolean("on"), gm);
+                refreshAccount(sp, store, a);
+            }
+            case "sys.character" -> {
+                setCharacter(store, sp, d.getBoolean("on"));
+                Views.sendState(sp, s);
             }
             case "sys.rename" -> {
                 Account a = target(store, d);
@@ -633,7 +744,7 @@ public final class Actions {
         return a == null || a.kind == Account.Kind.SYSTEM ? null : a;
     }
 
-    private static String label(Account a) {
+    static String label(Account a) {
         return a.name + " (" + PdaItem.formatId(a.id) + ")";
     }
 
@@ -642,6 +753,9 @@ public final class Actions {
         t.putBoolean("locked", a.locked);
         t.putBoolean("pw", a.hasPassword());
         t.putInt("issue", a.issue);
+        t.put("look", a.look.save());
+        t.putBoolean("signal", !a.noSignal);
+        if (a.owner != null) t.putBoolean("ownerSignal", !store.noSignalPlayers.containsKey(a.owner));
         t.putLong("created", a.created);
         boolean online = false;
         if (a.owner != null && PdaServer.server != null) online = PdaServer.server.getPlayerList().getPlayer(a.owner) != null;

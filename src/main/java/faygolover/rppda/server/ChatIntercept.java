@@ -35,6 +35,7 @@ public final class ChatIntercept {
     public static void registerEvents(IEventBus bus) {
         bus.addListener(EventPriority.LOW, ChatIntercept::onChat);
         bus.addListener(ChatIntercept::onCommands);
+        bus.addListener(PdaCommands::register);
     }
 
     private static void onChat(ServerChatEvent e) {
@@ -49,7 +50,7 @@ public final class ChatIntercept {
         Account acc = active(sp);
         if (acc != null) {
             Chat c = store.global();
-            String err = Messaging.check(acc, c, text);
+            String err = Messaging.check(acc, c, text, sp);
             if (err != null) {
                 sp.sendSystemMessage(Component.translatable(err).withStyle(ChatFormatting.RED));
                 return;
@@ -99,7 +100,11 @@ public final class ChatIntercept {
                     Component.literal("* ").append(ctx.getSource().getDisplayName()).append(" " + text), false);
             return 1;
         }
-        say(sp, text, true);
+        // Действие видно глазами — в обычный чат тем, кто рядом (и без КПК тоже), а не в КПК.
+        Component line = Component.literal("* ").append(sp.getDisplayName()).append(" " + text)
+                .withStyle(ChatFormatting.GRAY, ChatFormatting.ITALIC);
+        double r = PdaConfig.meRadius;
+        for (ServerPlayer p : sp.serverLevel().players()) if (p.distanceToSqr(sp) <= r * r) p.sendSystemMessage(line);
         return 1;
     }
 
@@ -161,7 +166,8 @@ public final class ChatIntercept {
 
     private static boolean dm(ServerPlayer sp, Account from, Account to, String text, @Nullable ServerPlayer forceLine) {
         Chat c = PdaServer.store.dm(from.id, to.id);
-        String err = Messaging.check(from, c, text);
+        Integer held = PdaServer.activeAccount(sp);
+        String err = Messaging.check(from, c, text, held != null && held == from.id ? sp : null);
         if (err != null) {
             sp.sendSystemMessage(Component.translatable(err).withStyle(ChatFormatting.RED));
             return false;

@@ -299,11 +299,42 @@ def i_eye(d):
     d.ellipse([22, 20, 42, 44], fill=255)
 
 
+def i_brush(d):
+    d.line([(52, 8), (26, 38)], fill=255, width=W + 2)
+    d.polygon([(22, 34), (32, 44), (18, 58), (6, 58), (8, 46)], fill=255)
+
+
+def bars(d):
+    for i, h in enumerate((14, 26, 38, 50)):
+        x = 8 + i * 13
+        d.rectangle([x, 58 - h, x + 8, 58], fill=255)
+
+
+def i_signal(d):
+    bars(d)
+
+
+def i_no_signal(d):
+    bars(d)
+    d.line([(4, 6), (60, 60)], fill=0, width=W + 6)
+    d.line([(6, 8), (58, 58)], fill=255, width=W)
+
+
+def i_mask(d):
+    d.chord([6, 6, 58, 62], 180, 360, fill=255)
+    d.rectangle([6, 32, 58, 40], fill=255)
+    d.pieslice([6, 18, 58, 62], 0, 180, fill=255)
+    d.ellipse([16, 22, 28, 32], fill=0)
+    d.ellipse([36, 22, 48, 32], fill=0)
+    d.arc([20, 38, 44, 54], 20, 160, fill=0, width=W - 1)
+
+
 ICONS = [i_chats, i_contacts, i_profile, i_lock, i_unlock, i_close, i_back, i_send,
          i_plus, i_group, i_channel, i_bell, i_pda_only, i_mute, i_members, i_leave,
          i_kick, i_crown, i_reply, i_trash, i_copy, i_key, i_silent, i_sound,
          i_accounts, i_log, i_switch, i_give, i_teleport, i_edit, i_block, i_check,
-         i_search, i_message, i_pda, i_refresh, i_person_add, i_system, i_globe, i_eye]
+         i_search, i_message, i_pda, i_refresh, i_person_add, i_system, i_globe, i_eye,
+         i_brush, i_signal, i_no_signal, i_mask]
 
 
 def atlas():
@@ -373,7 +404,7 @@ def slot_icon(path):
 
 if __name__ == "__main__":
     atlas()
-    device((90, 170, 255), (40, 120, 200), os.path.join(ROOT, "item", "pda.png"))
+    # Обычный КПК (и корпуса) — scripts/gen_skins.py.
     device((230, 70, 60), (170, 40, 40), os.path.join(ROOT, "item", "system_pda.png"), body=(40, 36, 36))
     slot_icon(os.path.join(ROOT, "slot", "pda.png"))
     print("items, slot: ok")

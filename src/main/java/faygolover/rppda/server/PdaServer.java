@@ -201,6 +201,7 @@ public final class PdaServer {
             if (a == null) continue;
             present.add(a.id);
             PdaItem.refreshName(s, a.name);
+            PdaItem.refreshLook(s, a.look);
             if (st == Devices.Status.OK) {
                 if (first == null) first = a;
                 // Разблокированный КПК с паролем без держателя (например, ГМ сбросил блокировку) — держит этот игрок.
@@ -221,7 +222,7 @@ public final class PdaServer {
 
         Session s = sessions.get(id);
         if (s != null && s.mode == Session.Mode.OPEN) {
-            boolean ok = s.system ? isAdmin(sp) && Devices.hasSystem(sp) : present.contains(s.device) && !lockedAcc(s.device);
+            boolean ok = s.system ? isGm(sp) && Devices.hasSystem(sp) : present.contains(s.device) && !lockedAcc(s.device);
             if (!ok) close(sp);
         }
     }
@@ -285,8 +286,57 @@ public final class PdaServer {
         return ForgeEventFactory.getPlayerDisplayName(sp, sp.getName()).getString();
     }
 
+    /**
+     * Админ «в игре»: видит общий чат и чат игроков без КПК, пишет {@code /tell} без КПК. В «режиме персонажа»
+     * мод считает его обычным игроком (права ГМа — {@link #isGm} — при этом остаются).
+     */
     public static boolean isAdmin(ServerPlayer sp) {
+        return isGm(sp) && (store == null || !store.characterMode.contains(sp.getUUID()));
+    }
+
+    /** Права ГМа: системный КПК, внешний вид, связь, команды {@code /rppda}. */
+    public static boolean isGm(ServerPlayer sp) {
         return sp.hasPermissions(PdaConfig.adminLevel);
+    }
+
+    // ---------------------------------------------------------------- связь
+
+    /** Есть ли связь у КПК этой учётки в руках у {@code holder} (null — держатель не важен). */
+    public static boolean signal(@Nullable ServerPlayer holder, Account a) {
+        if (a.noSignal) return false;
+        return holder == null || store == null || !store.noSignalPlayers.containsKey(holder.getUUID());
+    }
+
+    /** С какого момента сообщения не видны (связь пропала); {@code Long.MAX_VALUE} — связь есть. */
+    public static long signalCut(@Nullable ServerPlayer holder, Account a) {
+        long cut = Long.MAX_VALUE;
+        if (a.noSignal) cut = a.noSignalSince;
+        if (holder != null && store != null) {
+            Long p = store.noSignalPlayers.get(holder.getUUID());
+            if (p != null) cut = Math.min(cut, p);
+        }
+        return cut;
+    }
+
+    /** Диалог с Системой работает и без связи — на экстренный случай. */
+    public static boolean emergency(Chat c) {
+        return c.type == Chat.Type.DM && c.has(0);
+    }
+
+    /** Связь вернулась или пропала — у кого в руках эта учётка (или у этого игрока): обновить окно и значок. */
+    static void signalChanged(@Nullable Integer acc, @Nullable UUID player) {
+        if (server == null || store == null) return;
+        for (ServerPlayer sp : server.getPlayerList().getPlayers()) {
+            Session s = sessions.get(sp.getUUID());
+            Integer act = active.get(sp.getUUID());
+            boolean mine = player != null && player.equals(sp.getUUID())
+                    || acc != null && (act != null && act.equals(acc) || s != null && !s.system && s.device == acc);
+            if (!mine) continue;
+            if (s != null && s.mode == Session.Mode.OPEN && !s.system) Views.sendState(sp, s);
+            Messaging.sendUnread(sp);
+            Account a = act == null ? null : store.account(act);
+            if (a != null && signal(sp, a) && Messaging.unreadTotal(store, a, Long.MAX_VALUE) > 0) Messaging.ping(sp, a);
+        }
     }
 
     @Nullable
@@ -323,9 +373,7 @@ public final class PdaServer {
                 s.mode = Session.Mode.REGISTER;
                 s.hand = hand;
                 sessions.put(sp.getUUID(), s);
-                CompoundTag t = new CompoundTag();
-                t.putString("style", PdaConfig.style);
-                Net.send(sp, "register", t);
+                sendRegister(sp, stack);
             }
             case DISABLED -> actionbar(sp, "rppda.msg.disabled");
             case LOCKED -> {
@@ -340,6 +388,7 @@ public final class PdaServer {
                 t.putString("name", a.name);
                 t.putLong("wait", lockoutLeft(sp));
                 t.putString("style", PdaConfig.style);
+                t.put("look", a.look.save());
                 Net.send(sp, "locked", t);
             }
             case OK -> open(sp, store.account(PdaItem.account(stack)));
@@ -354,7 +403,7 @@ public final class PdaServer {
             open(sp, a);
             return;
         }
-        if (isAdmin(sp) && Devices.hasSystem(sp)) {
+        if (isGm(sp) && Devices.hasSystem(sp)) {
             openSystem(sp);
             return;
         }
@@ -378,7 +427,7 @@ public final class PdaServer {
     }
 
     static void openSystem(ServerPlayer sp) {
-        if (!isAdmin(sp)) {
+        if (!isGm(sp)) {
             actionbar(sp, "rppda.msg.system_denied");
             return;
         }
@@ -390,6 +439,15 @@ public final class PdaServer {
         if (store.account(s.acting) == null) s.acting = 0;
         sessions.put(sp.getUUID(), s);
         Views.sendState(sp, s);
+    }
+
+    /** Экран регистрации нового КПК: вид из предмета; ГМу — значок «Внешний вид». */
+    static void sendRegister(ServerPlayer sp, ItemStack stack) {
+        CompoundTag t = new CompoundTag();
+        t.putString("style", PdaConfig.style);
+        t.put("look", PdaItem.look(stack).save());
+        t.putBoolean("gm", isGm(sp));
+        Net.send(sp, "register", t);
     }
 
     static void actionbar(ServerPlayer sp, String key, Object... args) {

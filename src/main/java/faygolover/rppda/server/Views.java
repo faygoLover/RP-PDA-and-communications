@@ -36,7 +36,14 @@ public final class Views {
         CompoundTag t = new CompoundTag();
         t.put("me", account(store, a, null));
         t.putBoolean("system", s.system);
-        t.putBoolean("admin", PdaServer.isAdmin(sp));
+        t.putBoolean("admin", PdaServer.isGm(sp));
+        t.putBoolean("character", PdaServer.store.characterMode.contains(sp.getUUID()));
+        if (!s.system) {
+            Account dev = store.account(s.device);
+            if (dev != null) t.put("look", dev.look.save());
+        }
+        long cut = cut(sp, s);
+        t.putBoolean("signal", cut == Long.MAX_VALUE);
         t.putBoolean("silent", a.silent);
         t.putBoolean("pw", a.hasPassword());
         t.putInt("maxLen", faygolover.rppda.config.PdaConfig.maxLength);
@@ -50,7 +57,7 @@ public final class Views {
         }
         list.sort(Comparator.comparingLong((Chat c) -> c.lastTime).reversed());
         ListTag rows = new ListTag();
-        for (Chat c : list) rows.add(row(store, a, c, s));
+        for (Chat c : list) rows.add(row(store, a, c, s, cut));
         t.put("chats", rows);
 
         ListTag contacts = new ListTag();
@@ -85,7 +92,7 @@ public final class Views {
             invites.add(ct);
         }
         t.put("invites", invites);
-        t.putInt("unread", Messaging.unreadTotal(store, a));
+        t.putInt("unread", Messaging.unreadTotal(store, a, s.system ? Long.MAX_VALUE : cut));
         Net.send(sp, "state", t);
     }
 
@@ -98,7 +105,38 @@ public final class Views {
         return t;
     }
 
+    /** С какого момента окну не видно сообщений (нет связи); у системного КПК и у ГМа в чужой учётке — всё видно. */
+    static long cut(ServerPlayer sp, PdaServer.Session s) {
+        if (s.system) return Long.MAX_VALUE;
+        Account dev = PdaServer.store.account(s.device);
+        return dev == null ? Long.MAX_VALUE : PdaServer.signalCut(sp, dev);
+    }
+
+    /** Последнее сообщение чата, видное при связи до {@code cut} (null — нет таких в «свежих»). */
+    @Nullable
+    static Message lastVisible(PdaStore store, Chat c, long cut) {
+        List<Message> ms = store.log(c).messages;
+        for (int i = ms.size() - 1; i >= 0; i--) if (ms.get(i).time <= cut) return ms.get(i);
+        return null;
+    }
+
     static CompoundTag row(PdaStore store, Account viewer, Chat c, PdaServer.Session s) {
+        return row(store, viewer, c, s, Long.MAX_VALUE);
+    }
+
+    static CompoundTag row(PdaStore store, Account viewer, Chat c, PdaServer.Session s, long cut) {
+        if (cut != Long.MAX_VALUE && !PdaServer.emergency(c) && c.lastTime > cut) {
+            // Без связи: строка — как была на момент, когда связь пропала.
+            CompoundTag t = row(store, viewer, c, s, Long.MAX_VALUE);
+            Message m = lastVisible(store, c, cut);
+            int seq = m == null ? 0 : m.seq;
+            t.putInt("unread", c.has(viewer.id) ? Math.max(0, seq - viewer.lastRead.getOrDefault(c.id, 0)) : 0);
+            t.putString("last", m == null || m.deleted() || m.has(Message.NOTICE) ? "" : m.text.length() > 60 ? m.text.substring(0, 60) + "…" : m.text);
+            t.putLong("time", m == null ? c.created : m.time);
+            if (m != null && m.sender != 0) t.putString("lastFrom", nameFor(store, viewer, m.sender));
+            else t.remove("lastFrom");
+            return t;
+        }
         CompoundTag t = new CompoundTag();
         t.putInt("id", c.id);
         t.putString("type", c.type.name());

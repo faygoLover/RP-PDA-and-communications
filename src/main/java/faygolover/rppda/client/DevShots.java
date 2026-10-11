@@ -68,6 +68,15 @@ final class DevShots {
         return m;
     }
 
+    private static CompoundTag look(String body, String screen, String style, String accent) {
+        faygolover.rppda.data.Look l = new faygolover.rppda.data.Look();
+        l.body = body;
+        l.screen = screen;
+        l.style = style;
+        l.accent = accent;
+        return l.save();
+    }
+
     private static CompoundTag state(boolean system) {
         long now = System.currentTimeMillis();
         CompoundTag d = new CompoundTag();
@@ -181,6 +190,26 @@ final class DevShots {
             screen.receive("sys.account", a);
             screen.setPage(PdaScreen.Page.SYS_ACCOUNT);
         }, "pda_sys_account"});
+        // Внешний вид: страница ГМа на новом КПК и несколько корпусов на списке чатов.
+        steps.add(new Object[]{(Runnable) () -> {
+            CompoundTag r = new CompoundTag();
+            r.putBoolean("gm", true);
+            r.put("look", look("disco", "synth", "", "neon"));
+            screen.receive("register", r);
+            screen.openLookForShot();
+        }, "pda_look_disco"});
+        String[][] combos = {{"sunset", "synth", ""}, {"wave", "green", ""}, {"neon", "synth", ""}, {"wood", "lcd", ""},
+                {"camo", "white", ""}, {"memphis", "blue", ""}, {"rainbow", "green", ""}, {"cassette", "white", ""},
+                {"navy", "blue", ""}, {"beige", "green", "modern"}};
+        for (String[] c : combos) {
+            steps.add(new Object[]{(Runnable) () -> {
+                CompoundTag st = state(false);
+                st.put("look", look(c[0], c[1], c[2], "neon"));
+                if (c[0].equals("wave")) st.putBoolean("signal", false);
+                screen.receive("state", st);
+                screen.setPage(PdaScreen.Page.CHATS);
+            }, "pda_skin_" + c[0] + (c[2].isEmpty() ? "" : "_" + c[2])});
+        }
     }
 
     private static void tick(TickEvent.ClientTickEvent e) {

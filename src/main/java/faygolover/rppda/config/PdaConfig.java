@@ -17,6 +17,7 @@ public final class PdaConfig {
     private static final ForgeConfigSpec.IntValue NAME_TICKS;
     private static final ForgeConfigSpec.IntValue ARCHIVE_MINUTES;
     private static final ForgeConfigSpec.IntValue PENDING_LIMIT;
+    private static final ForgeConfigSpec.IntValue ME_RADIUS;
     private static final ForgeConfigSpec.IntValue PASSWORD_ATTEMPTS;
     private static final ForgeConfigSpec.IntValue LOCKOUT_SECONDS;
     private static final ForgeConfigSpec.DoubleValue SOUND_VOLUME;
@@ -31,6 +32,7 @@ public final class PdaConfig {
     public static int nameTicks = 100;
     public static int archiveMinutes = 10;
     public static int pendingLimit = 100;
+    public static int meRadius = 16;
     public static int passwordAttempts = 5;
     public static int lockoutSeconds = 60;
     public static double soundVolume = 0.7;
@@ -52,6 +54,8 @@ public final class PdaConfig {
         RATE_LIMIT = b.comment("Не больше стольких сообщений за 10 секунд от одной учётки.").defineInRange("messages_per_10s", 8, 1, 100);
         PENDING_LIMIT = b.comment("Сколько сообщений админам хранить за игроком без учётки (старые удаляются).")
                 .defineInRange("pending_limit", 100, 0, 1000);
+        ME_RADIUS = b.comment("/me видят игроки в этом радиусе (блоки) — в обычном чате, как действие персонажа.")
+                .defineInRange("me_radius", 16, 1, 512);
         SOUND_VOLUME = b.comment("Громкость звука уведомления (его слышат игроки рядом). 0 — без звука.")
                 .defineInRange("notify_volume", 0.7, 0.0, 4.0);
         b.pop();
@@ -86,6 +90,7 @@ public final class PdaConfig {
         nameTicks = NAME_TICKS.get();
         archiveMinutes = ARCHIVE_MINUTES.get();
         pendingLimit = PENDING_LIMIT.get();
+        meRadius = ME_RADIUS.get();
         passwordAttempts = PASSWORD_ATTEMPTS.get();
         lockoutSeconds = LOCKOUT_SECONDS.get();
         soundVolume = SOUND_VOLUME.get();

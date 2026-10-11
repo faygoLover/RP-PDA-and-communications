@@ -74,6 +74,37 @@ public class PdaItem extends Item {
         }
     }
 
+    /** Внешний вид, записанный в предмет (до регистрации — настоящий, после — копия для значка в инвентаре). */
+    public static faygolover.rppda.data.Look look(ItemStack stack) {
+        CompoundTag t = stack.getTag();
+        return faygolover.rppda.data.Look.load(t == null ? new CompoundTag() : t.getCompound(TAG).getCompound("look"));
+    }
+
+    public static void setLook(ItemStack stack, faygolover.rppda.data.Look look) {
+        CompoundTag t = stack.getOrCreateTagElement(TAG);
+        t.put("look", look.save());
+    }
+
+    /** Корпус учётки поменялся — обновить копию в предмете (только если другая: каждое изменение уходит клиенту). */
+    public static void refreshLook(ItemStack stack, faygolover.rppda.data.Look look) {
+        CompoundTag t = stack.getTag();
+        if (t == null) return;
+        CompoundTag p = t.getCompound(TAG);
+        if (!p.getCompound("look").equals(look.save())) {
+            p.put("look", look.save());
+            t.put(TAG, p);
+        }
+    }
+
+    /** Номер корпуса для модели предмета (0 — бежевый, как без записи). */
+    public static float skinIndex(ItemStack stack) {
+        CompoundTag t = stack.getTag();
+        if (t == null) return 0;
+        String body = t.getCompound(TAG).getCompound("look").getString("body");
+        int i = faygolover.rppda.data.Look.BODIES.indexOf(body);
+        return i <= 0 ? 0 : i / 100f;
+    }
+
     public static String formatId(int id) {
         String s = String.format("%08d", id);
         return s.substring(0, 4) + " " + s.substring(4);
