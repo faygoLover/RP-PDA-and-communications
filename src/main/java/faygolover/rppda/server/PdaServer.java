@@ -196,7 +196,7 @@ public final class PdaServer {
         Account first = null;
         for (ItemStack s : Devices.all(sp)) {
             Devices.Status st = Devices.status(s, store);
-            if (st == Devices.Status.NEW || st == Devices.Status.DISABLED) continue;
+            if (st == Devices.Status.NEW || st == Devices.Status.DISABLED || st == Devices.Status.DELETED) continue;
             Account a = store.account(PdaItem.account(s));
             if (a == null) continue;
             present.add(a.id);
@@ -223,6 +223,8 @@ public final class PdaServer {
         Session s = sessions.get(id);
         if (s != null && s.mode == Session.Mode.OPEN) {
             boolean ok = s.system ? isGm(sp) && Devices.hasSystem(sp) : present.contains(s.device) && !lockedAcc(s.device);
+            // Без сознания КПК не держат (системный — инструмент ГМа, ему можно).
+            if (!s.system && faygolover.rpcore.api.RpCoreAPI.unconscious(sp)) ok = false;
             if (!ok) close(sp);
         }
     }
@@ -366,6 +368,10 @@ public final class PdaServer {
             openSystem(sp);
             return;
         }
+        if (faygolover.rpcore.api.RpCoreAPI.unconscious(sp)) {
+            actionbar(sp, "rppda.err.unconscious");
+            return;
+        }
         if (!Devices.isPda(stack)) return;
         switch (Devices.status(stack, store)) {
             case NEW -> {
@@ -376,6 +382,7 @@ public final class PdaServer {
                 sendRegister(sp, stack);
             }
             case DISABLED -> actionbar(sp, "rppda.msg.disabled");
+            case DELETED -> actionbar(sp, "rppda.msg.deleted");
             case LOCKED -> {
                 Account a = store.account(PdaItem.account(stack));
                 Session s = new Session();
@@ -398,7 +405,7 @@ public final class PdaServer {
     /** Горячая клавиша: активный КПК; нет его — системный (у админа); иначе подсказка. */
     public static void openHotkey(ServerPlayer sp) {
         if (store == null) return;
-        Account a = Devices.active(sp, store);
+        Account a = faygolover.rpcore.api.RpCoreAPI.unconscious(sp) ? null : Devices.active(sp, store);
         if (a != null) {
             open(sp, a);
             return;

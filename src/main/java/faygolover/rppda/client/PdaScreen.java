@@ -4,7 +4,6 @@ import com.mojang.blaze3d.platform.InputConstants;
 import faygolover.rppda.client.Ui.Icon;
 import faygolover.rppda.client.Ui.IconButton;
 import net.minecraft.ChatFormatting;
-import faygolover.rppda.config.PdaClientConfig;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.resources.ResourceLocation;
@@ -31,7 +30,7 @@ import java.util.UUID;
  * раздел. Кнопки — значки, название всплывает через секунду. Всё, что показывается, присылает сервер.
  */
 public class PdaScreen extends Screen {
-    enum Page { WAIT, REGISTER, LOCKED, CHATS, CHAT, CONTACTS, PROFILE, MEMBERS, SYS_ACCOUNTS, SYS_ACCOUNT, SYS_CHATS, SYS_LOG, LOOK }
+    enum Page { WAIT, REGISTER, LOCKED, CHATS, CHAT, CONTACTS, PROFILE, MEMBERS, SYS_ACCOUNTS, SYS_ACCOUNT, SYS_CHATS, SYS_LOG, LOOK, NOTES, NOTE, NOTE_SHARE, APP }
 
     enum Prompt { NONE, NEW_DM, NEW_GROUP, NEW_CHANNEL, ADD_CONTACT, EDIT_LABEL, SET_PW, REMOVE_PW, RENAME_GROUP, INVITE, NPC, NPC_RENAME }
 
@@ -50,9 +49,25 @@ public class PdaScreen extends Screen {
     private Page lookReturn = Page.REGISTER;
     @Nullable
     private EditBox modelBox;
-    private boolean gm, character, signalOk = true;
+    private boolean gm, character, signalOk = true, allowOut;
+    /** Заметки учётки и открытая заметка (её черновик живёт в полях — окно пересобирается). */
+    private final List<CompoundTag> notes = new ArrayList<>();
+    private int noteId;
+    private String noteTitle = "", noteText = "";
+    private long noteDeleteArmed;
+    @Nullable
+    private EditBox noteTitleBox, npcBox;
+    @Nullable
+    private net.minecraft.client.gui.components.MultiLineEditBox noteBody;
+    /** Удаление учётки в системном КПК: сколько раз подтверждено. */
+    private int deleteArmId, deleteClicks;
+    private long deleteArmTime;
+    /** Раздел аддона, листание клавиш (ретро) и полосы разделов (современный), листание образцов корпусов. */
+    @Nullable
+    private faygolover.rppda.api.PdaApps.App app;
+    private int keyPage, railOffset, swatchPage;
     /** Вид, заданный сервером: "" — выбирает игрок, иначе "modern"/"retro". */
-    private String forcedStyle = "";
+    private String defaultStyle = "";
     /** Нажатая клавиша корпуса (−1 — нет) и чем: мышью держат, пока не отпустят. */
     private int heldKey = -1;
     private boolean heldByMouse;
@@ -191,13 +206,10 @@ public class PdaScreen extends Screen {
     }
 
     private boolean styleRetro() {
-        // Вид этого КПК, заданный ГМом, главнее настройки сервера и выбора игрока.
+        // Вид задаётся при выдаче: свой у этого КПК или по умолчанию с сервера.
         String own = shownLook().style;
-        if (!systemSkin() && own.equals("retro")) return true;
-        if (!systemSkin() && own.equals("modern")) return false;
-        if (forcedStyle.equals("retro")) return true;
-        if (forcedStyle.equals("modern")) return false;
-        return PdaClientConfig.retro();
+        if (!systemSkin() && !own.isEmpty()) return own.equals("retro");
+        return !defaultStyle.equals("modern");
     }
 
     /** Вид или корпус (обычный/системный) поменялся — пересобрать окно. */
@@ -218,7 +230,7 @@ public class PdaScreen extends Screen {
     void receive(String op, CompoundTag d) {
         switch (op) {
             case "register" -> {
-                forcedStyle = d.getString("style");
+                defaultStyle = d.getString("style");
                 look = faygolover.rppda.data.Look.load(d.getCompound("look"));
                 gm = d.getBoolean("gm");
                 editLook = null;
@@ -227,7 +239,7 @@ public class PdaScreen extends Screen {
                 setPage(Page.REGISTER);
             }
             case "locked" -> {
-                forcedStyle = d.getString("style");
+                defaultStyle = d.getString("style");
                 look = faygolover.rppda.data.Look.load(d.getCompound("look"));
                 system = false;
                 refreshTheme();
@@ -237,7 +249,7 @@ public class PdaScreen extends Screen {
                 setPage(Page.LOCKED);
             }
             case "state" -> {
-                forcedStyle = d.getString("style");
+                defaultStyle = d.getString("style");
                 readState(d);
                 refreshTheme();
                 if (page == Page.WAIT || page == Page.REGISTER || page == Page.LOCKED) setPage(Page.CHATS);
@@ -306,6 +318,14 @@ public class PdaScreen extends Screen {
                 sysChats.clear();
                 sysChats.addAll(list(d, "list"));
             }
+            case "notes" -> {
+                notes.clear();
+                notes.addAll(list(d, "list"));
+            }
+            case "notes.saved" -> {
+                noteId = d.getInt("id");
+                if (page == Page.NOTE) rebuild();
+            }
             case "sys.log" -> {
                 sysLog.clear();
                 sysLog.addAll(list(d, "list"));
@@ -342,6 +362,7 @@ public class PdaScreen extends Screen {
         gm = d.getBoolean("admin");
         character = d.getBoolean("character");
         signalOk = !d.contains("signal") || d.getBoolean("signal");
+        allowOut = d.getBoolean("allowOut");
         if (d.contains("maxLen")) maxLen = d.getInt("maxLen");
         chats.clear();
         chats.addAll(list(d, "chats"));
@@ -393,6 +414,8 @@ public class PdaScreen extends Screen {
 
     void setPage(Page p) {
         if (page == Page.CHAT && p != Page.CHAT && p != Page.MEMBERS) ClientPda.send("chat.leave", new CompoundTag());
+        if (page == Page.LOOK && p != Page.LOOK) editLook = null;
+        if (page == Page.APP && p != Page.APP && app != null) app.close();
         page = p;
         prompt = Prompt.NONE;
         listScroll = 0;
@@ -400,22 +423,40 @@ public class PdaScreen extends Screen {
             case SYS_ACCOUNTS -> send("sys.accounts", t -> t.putString("q", sysQuery));
             case SYS_CHATS -> send("sys.chats", t -> {});
             case SYS_LOG -> send("sys.log", t -> {});
+            case NOTES -> send("notes.list", t -> {});
             default -> {}
         }
-        rebuild();
+        // Ушли с «Внешнего вида» (предпросмотр) — вернуть вид этого КПК.
+        if (!refreshTheme()) rebuild();
     }
 
     private void rebuild() {
         if (input != null) inputDraft = input.getValue();
         clearWidgets();
-        promptA = promptB = input = password = search = modelBox = null;
+        if (noteTitleBox != null) noteTitle = noteTitleBox.getValue();
+        if (noteBody != null) noteText = noteBody.getValue();
+        promptA = promptB = input = password = search = modelBox = noteTitleBox = npcBox = null;
+        noteBody = null;
         if (page == Page.WAIT) return;
         if (page == Page.REGISTER) {
             addRenderableWidget(new IconButton(sx + sw / 2 - 70, sy + sh / 2 + 10, 140, 20, Icon.CHECK,
                     Component.translatable("rppda.btn.register"), Component.translatable("rppda.btn.register"),
                     b -> ClientPda.send("register", new CompoundTag())));
-            if (gm) addRenderableWidget(new IconButton(sx + sw - 22, sy + 14, Icon.BRUSH, Component.translatable("rppda.btn.look"),
-                    b -> openLook(-1, Page.REGISTER)));
+            if (gm) {
+                addRenderableWidget(new IconButton(sx + sw - 22, sy + 14, Icon.BRUSH, Component.translatable("rppda.btn.look"),
+                        b -> openLook(-1, Page.REGISTER)));
+                // NPC-учётка прямо на этот КПК.
+                int ny = sy + sh / 2 + 58;
+                npcBox = new EditBox(font, sx + sw / 2 - 70, ny, 118, retro ? 10 : 14, Component.translatable("rppda.hint.npc_name"));
+                npcBox.setMaxLength(32);
+                npcBox.setHint(hint("rppda.hint.npc_name"));
+                box(npcBox);
+                addRenderableWidget(npcBox);
+                addRenderableWidget(new IconButton(sx + sw / 2 + 52, ny - 3, Icon.PERSON_ADD, Component.translatable("rppda.btn.register_npc"), b -> {
+                    String n = npcBox == null ? "" : npcBox.getValue().strip();
+                    if (!n.isEmpty()) send("register.npc", t -> t.putString("name", n));
+                }));
+            }
             return;
         }
         if (page == Page.LOOK && lookTarget == -1) {
@@ -463,6 +504,12 @@ public class PdaScreen extends Screen {
             }
             case SYS_ACCOUNT -> sysAccountWidgets();
             case LOOK -> lookWidgets();
+            case NOTES -> toolbarButton(0, Icon.PLUS, "rppda.btn.note_new", () -> openNote(null));
+            case NOTE -> noteWidgets();
+            case NOTE_SHARE -> addRenderableWidget(new IconButton(cx, cy, Icon.BACK, Component.translatable("rppda.btn.back"), b -> setPage(Page.NOTE)));
+            case APP -> {
+                if (app != null) app.open(host);
+            }
             case SYS_CHATS -> toolbarButton(0, Icon.REFRESH, "rppda.btn.refresh", () -> send("sys.chats", t -> {}));
             case SYS_LOG -> toolbarButton(0, Icon.REFRESH, "rppda.btn.refresh", () -> send("sys.log", t -> {}));
             default -> {}
@@ -472,15 +519,27 @@ public class PdaScreen extends Screen {
 
     private void rail() {
         if (retro) return;
+        int controls = 1 + (!system && hasPw ? 1 : 0) + (system && meId != 0 ? 1 : 0);
+        int fit = Math.max(1, (sy + sh - 20 * controls - 4 - cy) / 20);
+        List<Section> secs = sections();
+        railOffset = Math.max(0, Math.min(railOffset, secs.size() - fit));
         int y = cy;
-        y = railButton(y, Icon.CHATS, "rppda.page.chats", Page.CHATS);
-        y = railButton(y, Icon.CONTACTS, "rppda.page.contacts", Page.CONTACTS);
-        if (!system) y = railButton(y, Icon.PROFILE, "rppda.page.profile", Page.PROFILE);
-        if (system) {
-            y += 4;
-            y = railButton(y, Icon.ACCOUNTS, "rppda.page.accounts", Page.SYS_ACCOUNTS);
-            y = railButton(y, Icon.GLOBE, "rppda.page.all_chats", Page.SYS_CHATS);
-            railButton(y, Icon.LOG, "rppda.page.log", Page.SYS_LOG);
+        for (int i = railOffset; i < secs.size() && i < railOffset + fit; i++) {
+            Section sec = secs.get(i);
+            IconButton b = new IconButton(sx + 3, y, sec.icon == null ? Icon.PDA : sec.icon, sec.title, btn -> sec.run.run()) {
+                @Override
+                protected void renderWidget(GuiGraphics gg, int mx, int my, float pt) {
+                    if (sec.app == null) {
+                        super.renderWidget(gg, mx, my, pt);
+                        return;
+                    }
+                    if (isHoveredOrFocused()) gg.fill(getX(), getY(), getX() + width, getY() + height, 0x33FFFFFF);
+                    sec.app.icon(gg, getX() + 1, getY() + 1, isHoveredOrFocused() ? 0xFFFFFFFF : color);
+                }
+            };
+            if (sec.on) b.color = Ui.ACCENT;
+            addRenderableWidget(b);
+            y += 20;
         }
         int by = sy + sh - 20;
         addRenderableWidget(new IconButton(sx + 3, by, Icon.CLOSE, Component.translatable("rppda.btn.close"), b -> onClose()));
@@ -497,6 +556,60 @@ public class PdaScreen extends Screen {
             addRenderableWidget(back);
         }
     }
+
+    /** Раздел КПК: встроенный (значок) или аддона ({@code app}). */
+    private record Section(@Nullable Icon icon, @Nullable faygolover.rppda.api.PdaApps.App app, Component title, boolean on, Runnable run) {}
+
+    /** Разделы этого КПК: встроенные, потом аддонов (их клавиши/кнопки подстраиваются). */
+    private List<Section> sections() {
+        List<Section> out = new ArrayList<>();
+        boolean inChats = (page == Page.CHAT || page == Page.MEMBERS);
+        out.add(new Section(Icon.CHATS, null, Component.translatable("rppda.page.chats"), page == Page.CHATS || inChats && chatReturn == Page.CHATS,
+                () -> setPage(Page.CHATS)));
+        out.add(new Section(Icon.CONTACTS, null, Component.translatable("rppda.page.contacts"), page == Page.CONTACTS, () -> setPage(Page.CONTACTS)));
+        out.add(new Section(Icon.NOTE, null, Component.translatable("rppda.page.notes"),
+                page == Page.NOTES || page == Page.NOTE || page == Page.NOTE_SHARE, () -> setPage(Page.NOTES)));
+        if (system) {
+            out.add(new Section(Icon.ACCOUNTS, null, Component.translatable("rppda.page.accounts"), page == Page.SYS_ACCOUNTS || page == Page.SYS_ACCOUNT,
+                    () -> setPage(Page.SYS_ACCOUNTS)));
+            out.add(new Section(Icon.GLOBE, null, Component.translatable("rppda.page.all_chats"),
+                    page == Page.SYS_CHATS || inChats && chatReturn == Page.SYS_CHATS, () -> setPage(Page.SYS_CHATS)));
+            out.add(new Section(Icon.LOG, null, Component.translatable("rppda.page.log"), page == Page.SYS_LOG, () -> setPage(Page.SYS_LOG)));
+        } else {
+            out.add(new Section(Icon.PROFILE, null, Component.translatable("rppda.page.profile"), page == Page.PROFILE, () -> setPage(Page.PROFILE)));
+        }
+        for (faygolover.rppda.api.PdaApps.App a : faygolover.rppda.api.PdaApps.all()) {
+            if (system ? !a.system() : !a.player()) continue;
+            out.add(new Section(null, a, a.title(), page == Page.APP && app == a, () -> openApp(a)));
+        }
+        return out;
+    }
+
+    private void openApp(faygolover.rppda.api.PdaApps.App a) {
+        if (app != null && app != a) app.close();
+        app = a;
+        page = Page.APP;
+        prompt = Prompt.NONE;
+        rebuild();
+    }
+
+    /** Что окно даёт разделу аддона. */
+    private final faygolover.rppda.api.PdaApps.Host host = new faygolover.rppda.api.PdaApps.Host() {
+        public int x() { return cx; }
+        public int y() { return cy; }
+        public int width() { return cw; }
+        public int height() { return ch; }
+        public boolean retro() { return retro; }
+        public int textColor() { return Ui.TEXT; }
+        public int dimColor() { return Ui.DIM; }
+        public int accentColor() { return Ui.ACCENT; }
+        public int screenColor() { return Ui.SCREEN; }
+        public net.minecraft.client.gui.Font font() { return font; }
+        public void text(GuiGraphics g, String str, int x, int y, int color) { txt(g, str, x, y, color, false); }
+        public <T extends net.minecraft.client.gui.components.events.GuiEventListener & net.minecraft.client.gui.components.Renderable
+                & net.minecraft.client.gui.narration.NarratableEntry> T add(T widget) { return addRenderableWidget(widget); }
+        public int account() { return meId; }
+    };
 
     private int railButton(int y, Icon icon, String key, Page target) {
         IconButton b = new IconButton(sx + 3, y, icon, Component.translatable(key), btn -> setPage(target));
@@ -523,15 +636,22 @@ public class PdaScreen extends Screen {
         }));
         int n = 0;
         if (chatRow.getBoolean("member")) {
-            String mode = chatRow.getString("mode");
-            Icon mi = mode.equals("PDA") ? Icon.PDA_ONLY : mode.equals("MUTED") ? Icon.MUTE : Icon.BELL;
-            toolbarButton(n++, mi, "rppda.mode." + mode.toLowerCase(), () -> {
-                int next = mode.equals("CHAT") ? 1 : mode.equals("PDA") ? 2 : 0;
+            String nt = chatRow.getString("notify");
+            Icon ni = nt.equals("SILENT") ? Icon.SILENT : nt.equals("NONE") ? Icon.MUTE : Icon.SOUND;
+            toolbarButton(n++, ni, "rppda.notify." + (nt.isEmpty() ? "sound" : nt.toLowerCase(java.util.Locale.ROOT)), () -> {
+                int next = nt.equals("SILENT") ? 2 : nt.equals("NONE") ? 0 : 1;
                 send("chat.notify", t -> {
                     t.putInt("chat", chatRow.getInt("id"));
                     t.putInt("mode", next);
                 });
             });
+            boolean out = chatRow.getBoolean("out");
+            IconButton ob = toolbarButton(n++, out ? Icon.CHATS : Icon.PDA_ONLY,
+                    out ? "rppda.out.chat" : allowOut ? "rppda.out.pda" : "rppda.out.pda_locked", () -> send("chat.out", t -> {
+                        t.putInt("chat", chatRow.getInt("id"));
+                        t.putBoolean("on", !out);
+                    }));
+            ob.active = out || allowOut;
         }
         String type = chatRow.getString("type");
         if (type.equals("GROUP") || type.equals("CHANNEL")) {
@@ -597,15 +717,6 @@ public class PdaScreen extends Screen {
             addRenderableWidget(new IconButton(bx + 40, by, Icon.LOCK, Component.translatable("rppda.btn.lock"),
                     b -> ClientPda.send("lock", new CompoundTag())));
         }
-        boolean forced = !forcedStyle.isEmpty() || !look.style.isEmpty();
-        IconButton style = new IconButton(bx, by + 2 * st, Icon.EYE, Component.translatable(!look.style.isEmpty() ? "rppda.btn.style_device"
-                : forced ? "rppda.btn.style_forced"
-                : retro ? "rppda.btn.style_modern" : "rppda.btn.style_retro"), b -> {
-            PdaClientConfig.setRetro(!retro);
-            rebuildWidgets();
-        });
-        style.active = !forced;
-        addRenderableWidget(style);
         IconButton snd = new IconButton(bx, by + st, silent ? Icon.SILENT : Icon.SOUND,
                 Component.translatable(silent ? "rppda.btn.sound_on" : "rppda.btn.sound_off"),
                 b -> send("profile.silent", t -> t.putBoolean("on", !silent)));
@@ -631,6 +742,8 @@ public class PdaScreen extends Screen {
             if (sysAcc.getString("kind").equals("NPC"))
                 acts.add(new Object[]{Icon.EDIT, "rppda.btn.rename_npc", (Runnable) () -> openPrompt(Prompt.NPC_RENAME, id)});
             acts.add(new Object[]{Icon.BRUSH, "rppda.btn.look", (Runnable) () -> openLook(id, Page.SYS_ACCOUNT)});
+            boolean player = sysAcc.getString("kind").equals("PLAYER");
+            acts.add(new Object[]{Icon.TRASH, "rppda.btn.delete_account", (Runnable) () -> armDelete(id, player)});
             boolean sig = !sysAcc.contains("signal") || sysAcc.getBoolean("signal");
             acts.add(new Object[]{sig ? Icon.SIGNAL : Icon.NO_SIGNAL, sig ? "rppda.btn.signal_off" : "rppda.btn.signal_on",
                     (Runnable) () -> send("sys.signal", t -> {
@@ -855,6 +968,7 @@ public class PdaScreen extends Screen {
             rebuild();
             return true;
         }
+        if (page == Page.APP && app != null && app.keyPressed(key, scan, mods)) return true;
         if (super.keyPressed(key, scan, mods)) return true;
         // Клавиша КПК закрывает окно, если не печатаем.
         InputConstants.Key k = InputConstants.getKey(key, scan);
@@ -889,6 +1003,7 @@ public class PdaScreen extends Screen {
             }
         }
         if (super.mouseClicked(mx, my, button)) return true;
+        if (page == Page.APP && app != null && app.mouseClicked(mx, my, button)) return true;
         if (button != 0) return false;
         for (Hot hot : new ArrayList<>(hots)) {
             if (hot.in(mx, my)) {
@@ -910,6 +1025,16 @@ public class PdaScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mx, double my, double delta) {
+        if (!retro && mx < sx + 22 && mx >= sx) {
+            railOffset = Math.max(0, railOffset - (int) Math.signum(delta));
+            rebuild();
+            return true;
+        }
+        if (page == Page.APP && app != null && app.mouseScrolled(mx, my, delta)) return true;
+        if (page == Page.LOOK && my >= cy + 50 && my < cy + 66) {
+            swatchPage = Math.max(0, swatchPage - (int) Math.signum(delta));
+            return true;
+        }
         if (page == Page.CHAT) {
             scroll = Math.max(0, scroll + delta * 18);
             return true;
@@ -963,6 +1088,12 @@ public class PdaScreen extends Screen {
                 case SYS_CHATS -> renderSysChats(g, mx, my);
                 case SYS_LOG -> renderSysLog(g);
                 case LOOK -> renderLook(g, mx, my);
+                case NOTES -> renderNotes(g, mx, my);
+                case NOTE -> renderNote(g);
+                case NOTE_SHARE -> renderNoteShare(g, mx, my);
+                case APP -> {
+                    if (app != null) app.render(g, mx, my, pt);
+                }
                 default -> {}
             }
             if (prompt != Prompt.NONE) g.fill(cx, cy + 19, cx + cw, cy + 39, Ui.PANEL);
@@ -1183,15 +1314,15 @@ public class PdaScreen extends Screen {
         String from = r.getString("lastFrom");
         String preview = last.isEmpty() ? (r.getLong("time") > 0 ? "…" : "") : (from.isEmpty() ? last : from + ": " + last);
         int right = 6;
-        String mode = r.getString("mode");
-        if (mode.equals("MUTED")) {
-            Ui.icon(g, Icon.MUTE, cx + cw - 14, y + 13, 9, Ui.DIM);
+        String mode = r.getString("notify");
+        if (mode.equals("NONE") || mode.equals("SILENT")) {
+            Ui.icon(g, mode.equals("NONE") ? Icon.MUTE : Icon.SILENT, cx + cw - 14, y + 13, 9, Ui.DIM);
             right += 12;
         }
         if (unread > 0) {
             String n = unread > 99 ? "99+" : Integer.toString(unread);
             int bw = tw(n) + 6;
-            g.fill(cx + cw - right - bw + 2, y + 12, cx + cw - right + 2, y + 22, mode.equals("MUTED") ? Ui.DIM : Ui.ACCENT);
+            g.fill(cx + cw - right - bw + 2, y + 12, cx + cw - right + 2, y + 22, mode.equals("NONE") ? Ui.DIM : Ui.ACCENT);
             g.drawString(font, n, cx + cw - right - bw + 5, y + 13, retro ? Ui.SCREEN : 0xFFFFFFFF, false);
             right += bw + 2;
         }
@@ -1232,6 +1363,7 @@ public class PdaScreen extends Screen {
             boolean own = m.getInt("f") == meId;
             boolean deleted = (fl & 1) != 0;
             Component body = deleted && m.getString("x").isEmpty() ? Component.translatable("rppda.chat.deleted").withStyle(ChatFormatting.ITALIC)
+                    : (fl & 8) != 0 ? Component.literal(noteCard(m.getString("x"))).withStyle(ChatFormatting.GOLD)
                     : (fl & 4) != 0 ? Component.literal("* " + m.getString("x")).withStyle(ChatFormatting.ITALIC)
                     : Component.literal(m.getString("x"));
             if (deleted && !m.getString("x").isEmpty()) body = body.copy().withStyle(ChatFormatting.STRIKETHROUGH);
@@ -1384,7 +1516,9 @@ public class PdaScreen extends Screen {
                         t.putInt("chat", chatRow.getInt("id"));
                         t.putInt("seq", seq);
                     }));
+                    ix += step;
                 }
+                if ((m.getInt("fl") & 8) != 0 && !b.own) acceptNoteIcon(g, ix, by + 1, m);
             }
         }
         g.disableScissor();
@@ -1497,12 +1631,8 @@ public class PdaScreen extends Screen {
         txt(g, pw, cx + 6 + (hasPw ? 62 : 22), by + 5, hasPw ? Ui.GREEN : Ui.DIM, false);
         Component snd = Component.translatable(silent ? "rppda.profile.silent" : "rppda.profile.sound");
         txt(g, snd, cx + 28, by + st + 5, Ui.DIM, false);
-        Component look = Component.translatable(retro ? "rppda.profile.style_retro" : "rppda.profile.style_modern");
-        if (!this.look.style.isEmpty()) look = look.copy().append(" ").append(Component.translatable("rppda.profile.style_device"));
-        else if (!forcedStyle.isEmpty()) look = look.copy().append(" ").append(Component.translatable("rppda.profile.style_server"));
-        txt(g, look, cx + 28, by + 2 * st + 5, Ui.DIM, false);
         List<FormattedCharSequence> hint = font.split(Component.literal(Ui.up(Component.translatable("rppda.profile.hint").getString())), cw - 12);
-        int hy = by + 3 * st + 4;
+        int hy = by + 2 * st + 4;
         for (FormattedCharSequence l : hint) {
             if (hy + 9 > cy + ch) break;
             txt(g, l, cx + 6, hy, Ui.HINT, false);
@@ -1620,38 +1750,55 @@ public class PdaScreen extends Screen {
 
     private List<EditBox> framedBoxes() {
         List<EditBox> out = new ArrayList<>();
-        for (EditBox b : new EditBox[]{password, search, promptA, promptB, modelBox}) if (b != null) out.add(b);
+        for (EditBox b : new EditBox[]{password, search, promptA, promptB, modelBox, noteTitleBox, npcBox}) if (b != null) out.add(b);
         return out;
     }
 
     // ================================================================ ретро: корпус, клавиши, кинескоп
 
-    private record Key(Icon icon, String tip, boolean enabled, Runnable run) {}
+    /** Клавиша корпуса: значок (или раздел аддона, или подпись «<</>>» для листания). */
+    private record Key(@Nullable Icon icon, Component tip, boolean enabled, Runnable run, @Nullable faygolover.rppda.api.PdaApps.App app,
+                       @Nullable String label) {
+        Key(Icon icon, String tip, boolean enabled, Runnable run) {
+            this(icon, Component.translatable(tip), enabled, run, null, null);
+        }
+    }
 
     private static final int KEY_H = 20;
 
     /** Клавиши корпуса слева направо (F3, F4…). F1 и F2 не трогаем — это скрытие интерфейса и снимок экрана. */
     private List<Key> keys() {
-        List<Key> k = new ArrayList<>();
         boolean ready = page != Page.WAIT && page != Page.REGISTER && page != Page.LOCKED && !(page == Page.LOOK && lookTarget == -1);
-        k.add(new Key(Icon.CHATS, "rppda.page.chats", ready, () -> setPage(Page.CHATS)));
-        k.add(new Key(Icon.CONTACTS, "rppda.page.contacts", ready, () -> setPage(Page.CONTACTS)));
+        List<Key> secs = new ArrayList<>();
+        for (Section sec : sections()) secs.add(new Key(sec.icon, sec.title, ready, sec.run, sec.app, null));
+        List<Key> ctl = new ArrayList<>();
         if (system) {
-            k.add(new Key(Icon.ACCOUNTS, "rppda.page.accounts", ready, () -> setPage(Page.SYS_ACCOUNTS)));
-            k.add(new Key(Icon.GLOBE, "rppda.page.all_chats", ready, () -> setPage(Page.SYS_CHATS)));
-            k.add(new Key(Icon.LOG, "rppda.page.log", ready, () -> setPage(Page.SYS_LOG)));
-            k.add(new Key(Icon.SYSTEM, "rppda.btn.back_system", ready && meId != 0, () -> send("sys.switch", t -> t.putInt("id", 0))));
+            ctl.add(new Key(Icon.SYSTEM, "rppda.btn.back_system", ready && meId != 0, () -> send("sys.switch", t -> t.putInt("id", 0))));
         } else {
-            k.add(new Key(Icon.PROFILE, "rppda.page.profile", ready, () -> setPage(Page.PROFILE)));
-            k.add(new Key(Icon.BACK, "rppda.btn.back", (ready || page == Page.LOOK) && canGoBack(), this::goBack));
-            k.add(new Key(Icon.LOCK, "rppda.btn.lock", ready && hasPw, () -> ClientPda.send("lock", new CompoundTag())));
+            ctl.add(new Key(Icon.BACK, "rppda.btn.back", (ready || page == Page.LOOK) && canGoBack(), this::goBack));
+            ctl.add(new Key(Icon.LOCK, "rppda.btn.lock", ready && hasPw, () -> ClientPda.send("lock", new CompoundTag())));
         }
-        k.add(new Key(Icon.CLOSE, "rppda.btn.close", true, this::onClose));
-        return k;
+        ctl.add(new Key(Icon.CLOSE, "rppda.btn.close", true, this::onClose));
+        // Помещаются — все; нет — разделы листаются клавишами «<<» и «>>», управление остаётся справа.
+        int fit = Math.max(4, (sw + 6) / 36);
+        List<Key> out = new ArrayList<>();
+        if (secs.size() + ctl.size() <= fit) {
+            out.addAll(secs);
+        } else {
+            int per = Math.max(1, fit - ctl.size() - 2);
+            int pages = (secs.size() + per - 1) / per;
+            keyPage = Math.max(0, Math.min(keyPage, pages - 1));
+            out.add(new Key(null, Component.translatable("rppda.btn.prev"), keyPage > 0, () -> keyPage--, null, "<<"));
+            out.addAll(secs.subList(keyPage * per, Math.min(secs.size(), keyPage * per + per)));
+            out.add(new Key(null, Component.translatable("rppda.btn.next"), keyPage < pages - 1, () -> keyPage++, null, ">>"));
+        }
+        out.addAll(ctl);
+        return out;
     }
 
     private boolean canGoBack() {
-        return prompt != Prompt.NONE || page == Page.CHAT || page == Page.MEMBERS || page == Page.SYS_ACCOUNT || page == Page.LOOK;
+        return prompt != Prompt.NONE || page == Page.CHAT || page == Page.MEMBERS || page == Page.SYS_ACCOUNT || page == Page.LOOK
+                || page == Page.NOTE || page == Page.NOTE_SHARE;
     }
 
     private void goBack() {
@@ -1668,6 +1815,8 @@ public class PdaScreen extends Screen {
             case MEMBERS -> setPage(Page.CHAT);
             case SYS_ACCOUNT -> setPage(Page.SYS_ACCOUNTS);
             case LOOK -> cancelLook();
+            case NOTE -> setPage(Page.NOTES);
+            case NOTE_SHARE -> setPage(Page.NOTE);
             default -> {}
         }
     }
@@ -1709,6 +1858,11 @@ public class PdaScreen extends Screen {
         return true;
     }
 
+    /** Для снимков: открыть заметку. */
+    void openNoteForShot(CompoundTag n) {
+        openNote(n);
+    }
+
     /** Для снимков: открыть «Внешний вид» нового КПК. */
     void openLookForShot() {
         openLook(-1, Page.REGISTER);
@@ -1747,7 +1901,7 @@ public class PdaScreen extends Screen {
         int label = sysSkin ? 0xFF3C1412 : skin.label();
         Component model = sysSkin ? Component.translatable("rppda.body.system")
                 : shown.model.isEmpty() ? Component.translatable("rppda.model." + skin.id()) : Component.literal(shown.model);
-        g.drawString(font, model, x0 + (sysSkin ? 12 : skin.labelX() * w / 360), y0 + 5, label, false);
+        g.drawString(font, model, x0 + (sysSkin ? 12 : skin.labelX() * w / 360), y0 + 3, label, false);
         // Решётка динамика и индикатор (мигает, когда есть непрочитанное).
         for (int i = 0; i < 6; i++) g.fill(x0 + w - 70 + i * 6, y0 + 6, x0 + w - 67 + i * 6, y0 + 12, 0x66000000);
         boolean blink = !system && ClientPda.unread > 0 && (System.currentTimeMillis() / 500) % 2 == 0;
@@ -1775,10 +1929,13 @@ public class PdaScreen extends Screen {
             if (!down) g.fill(kx, ky + 2, kx + kw, ky + KEY_H + 2, shadow);
             g.fill(kx, y, kx + kw, y + KEY_H, down ? ((face & 0xFEFEFE) >>> 1) | 0xFF000000 : hover && k.enabled ? top : face);
             if (!down) g.fill(kx, y, kx + kw, y + 1, top);
-            Ui.icon(g, k.icon, kx + kw / 2 - 8, y + KEY_H / 2 - 8, k.enabled ? 0xFFE2DCCE : 0xFF7E786E);
+            int ic = k.enabled ? 0xFFE2DCCE : 0xFF7E786E;
+            if (k.app != null) k.app.icon(g, kx + kw / 2 - 8, y + KEY_H / 2 - 8, ic);
+            else if (k.label != null) g.drawString(font, k.label, kx + kw / 2 - font.width(k.label) / 2, y + KEY_H / 2 - 4, ic, false);
+            else Ui.icon(g, k.icon, kx + kw / 2 - 8, y + KEY_H / 2 - 8, ic);
             String f = "F" + (3 + i);
             g.drawString(font, f, kx + 2, ky + KEY_H + 5, label, false);
-            hots.add(new Hot(kx, ky, kw, KEY_H + 2, "key" + i + k.icon, Component.translatable(k.tip), () -> {}));
+            hots.add(new Hot(kx, ky, kw, KEY_H + 2, "key" + i + k.tip.getString(), k.tip, () -> {}));
         }
     }
 
@@ -1885,11 +2042,25 @@ public class PdaScreen extends Screen {
         txt(g, Component.translatable("rppda.skin." + l.body), vx, y, Ui.TEXT, false);
         int sy0 = y + 11;
         List<String> bodies = faygolover.rppda.data.Look.BODIES;
-        for (int i = 0; i < bodies.size(); i++) {
+        int per = Math.max(1, (cw - 8 - 24) / 16);
+        int pages = (bodies.size() + per - 1) / per;
+        swatchPage = Math.max(0, Math.min(swatchPage, pages - 1));
+        if (pages > 1) {
+            int sp0 = swatchPage;
+            int ax = lx + per * 16 + 2;
+            txt(g, "<", ax, sy0 + 1, sp0 > 0 ? Ui.TEXT : Ui.DIM, false);
+            txt(g, ">", ax + 12, sy0 + 1, sp0 < pages - 1 ? Ui.TEXT : Ui.DIM, false);
+            hots.add(new Hot(ax - 2, sy0 - 1, 10, 12, "swp", Component.translatable("rppda.btn.prev"), () -> swatchPage = Math.max(0, sp0 - 1)));
+            hots.add(new Hot(ax + 10, sy0 - 1, 10, 12, "swn", Component.translatable("rppda.btn.next"), () -> swatchPage = sp0 + 1));
+        }
+        for (int i = swatchPage * per; i < bodies.size() && i < swatchPage * per + per; i++) {
             String b = bodies.get(i);
-            int bx = lx + i * 16;
+            int bx = lx + (i - swatchPage * per) * 16;
             com.mojang.blaze3d.systems.RenderSystem.enableBlend();
-            g.blit(Skins.SWATCHES, bx, sy0, 14, 10, (i % 8) * 28, (i / 8) * 20, 28, 20, 224, 60);
+            Skins.Skin sk = Skins.get(b);
+            if (i < 24) g.blit(Skins.SWATCHES, bx, sy0, 14, 10, (i % 8) * 28, (i / 8) * 20, 28, 20, 224, 60);
+            else if (sk.textured()) g.blit(sk.texture(), bx, sy0, 14, 10, 0, 0, 360, 254, 360, 254);
+            else g.fill(bx, sy0, bx + 14, sy0 + 10, sk.color());
             if (b.equals(l.body)) g.renderOutline(bx - 1, sy0 - 1, 16, 12, Ui.TEXT);
             hots.add(new Hot(bx - 1, sy0 - 1, 16, 12, "body" + b, Component.translatable("rppda.skin." + b), () -> editLook(e -> e.body = b)));
         }
@@ -1925,6 +2096,135 @@ public class PdaScreen extends Screen {
             txt(g, line, lx, hy, Ui.HINT, false);
             hy += 10;
         }
+    }
+
+    // ================================================================ заметки
+
+    private void openNote(@Nullable CompoundTag n) {
+        noteId = n == null ? 0 : n.getInt("id");
+        noteTitle = n == null ? "" : n.getString("title");
+        noteText = n == null ? "" : n.getString("text");
+        noteDeleteArmed = 0;
+        page = Page.NOTE;
+        prompt = Prompt.NONE;
+        rebuild();
+    }
+
+    private void noteWidgets() {
+        addRenderableWidget(new IconButton(cx, cy, Icon.BACK, Component.translatable("rppda.btn.back"), b -> setPage(Page.NOTES)));
+        toolbarButton(0, Icon.CHECK, "rppda.btn.note_save", this::saveNote);
+        if (noteId > 0) {
+            toolbarButton(1, Icon.SEND, "rppda.btn.note_share", () -> {
+                saveNote();
+                setPage(Page.NOTE_SHARE);
+            });
+            toolbarButton(2, Icon.TRASH, "rppda.btn.note_delete", () -> {
+                long now = System.currentTimeMillis();
+                if (now - noteDeleteArmed > 4000) {
+                    noteDeleteArmed = now;
+                    showToast(Component.translatable("rppda.toast.confirm_delete"), true);
+                    return;
+                }
+                int id = noteId;
+                send("notes.delete", t -> t.putInt("id", id));
+                setPage(Page.NOTES);
+            });
+        }
+        noteTitleBox = new EditBox(font, cx + 22, cy + 4, cw - 22 - 64, retro ? 10 : 12, Component.translatable("rppda.hint.note_title"));
+        noteTitleBox.setMaxLength(faygolover.rppda.data.Note.TITLE_MAX);
+        noteTitleBox.setHint(hint("rppda.hint.note_title"));
+        noteTitleBox.setValue(noteTitle);
+        box(noteTitleBox);
+        addRenderableWidget(noteTitleBox);
+        noteBody = new net.minecraft.client.gui.components.MultiLineEditBox(font, cx + 2, cy + 22, cw - 4, ch - 24,
+                hint("rppda.hint.note_text"), Component.translatable("rppda.page.notes"));
+        noteBody.setCharacterLimit(faygolover.rppda.data.Note.TEXT_MAX);
+        noteBody.setValue(noteText);
+        addRenderableWidget(noteBody);
+        setInitialFocus(noteText.isEmpty() && noteTitle.isEmpty() ? noteTitleBox : noteBody);
+    }
+
+    private void saveNote() {
+        if (noteTitleBox != null) noteTitle = noteTitleBox.getValue();
+        if (noteBody != null) noteText = noteBody.getValue();
+        if (noteTitle.isBlank() && noteText.isBlank()) return;
+        int id = noteId;
+        String title = noteTitle, text = noteText;
+        send("notes.save", t -> {
+            t.putInt("id", id);
+            t.putString("title", title);
+            t.putString("text", text);
+        });
+    }
+
+    private void renderNotes(GuiGraphics g, int mx, int my) {
+        title(g, Component.translatable("rppda.page.notes"), 4);
+        list(g, mx, my, notes, 22, "note", (gg, n, y, hover) -> {
+            Ui.icon(gg, Icon.NOTE, cx + 4, y + 3, 16, n.contains("from") ? Ui.GOLD : Ui.ACCENT);
+            txt(gg, fit(n.getString("title"), cw - 34), cx + 24, y + 2, Ui.TEXT, false);
+            String sub = Ui.time(n.getLong("updated")) + (n.contains("from")
+                    ? " · " + Component.translatable("rppda.note.from", n.getString("from")).getString() : "");
+            txt(gg, fit(sub, cw - 34), cx + 24, y + 12, Ui.DIM, false);
+        }, (n, y) -> openNote(n));
+    }
+
+    private void renderNote(GuiGraphics g) {
+        if (noteId == 0) return;
+        for (CompoundTag n : notes) {
+            if (n.getInt("id") == noteId && n.contains("from")) {
+                txt(g, fit(Component.translatable("rppda.note.from", n.getString("from")).getString(), cw - 10), cx + 4, cy + ch - 9, Ui.GOLD, false);
+            }
+        }
+    }
+
+    private void renderNoteShare(GuiGraphics g, int mx, int my) {
+        title(g, Component.translatable("rppda.screen.note_share"), 22);
+        List<CompoundTag> rows = new ArrayList<>();
+        for (CompoundTag r : chats) if (r.getBoolean("write")) rows.add(r);
+        list(g, mx, my, rows, 24, "share", (gg, r, y, hover) -> drawChatRow(gg, r, y), (r, y) -> {
+            int id = noteId, chat = r.getInt("id");
+            send("notes.share", t -> {
+                t.putInt("id", id);
+                t.putInt("chat", chat);
+            });
+            setPage(Page.NOTE);
+        });
+    }
+
+    /** Текст карточки заметки в переписке: «Заметка «Заголовок»» и начало текста. */
+    private String noteCard(String raw) {
+        int nl = raw.indexOf('\n');
+        String title = nl < 0 ? raw : raw.substring(0, nl);
+        String body = nl < 0 ? "" : raw.substring(nl + 1).strip();
+        if (body.length() > 140) body = body.substring(0, 140) + "…";
+        return Component.translatable("rppda.note.card", title).getString() + (body.isEmpty() ? "" : "\n" + body);
+    }
+
+    private void acceptNoteIcon(GuiGraphics g, int x, int y, CompoundTag m) {
+        int seq = m.getInt("s");
+        rowIcon(g, x, y, Icon.PLUS, "rppda.btn.note_accept", "nacc" + seq, Ui.GOLD, () -> send("notes.accept", t -> {
+            t.putInt("chat", chatRow.getInt("id"));
+            t.putInt("seq", seq);
+        }));
+    }
+
+    /** Удаление учётки: NPC — два нажатия, учётка игрока — три (двойное подтверждение). */
+    private void armDelete(int id, boolean player) {
+        long now = System.currentTimeMillis();
+        if (deleteArmId != id || now - deleteArmTime > 5000) {
+            deleteArmId = id;
+            deleteClicks = 0;
+        }
+        deleteArmTime = now;
+        deleteClicks++;
+        int need = player ? 3 : 2;
+        if (deleteClicks < need) {
+            showToast(Component.translatable(deleteClicks == 1 ? "rppda.toast.confirm_delete" : "rppda.toast.confirm_delete_player"), true);
+            return;
+        }
+        deleteArmId = 0;
+        send("sys.delete", t -> t.putInt("id", id));
+        setPage(Page.SYS_ACCOUNTS);
     }
 
     /** Кинескоп: строки развёртки (в настоящих пикселях окна) и затемнение к краям. */
@@ -1966,7 +2266,7 @@ public class PdaScreen extends Screen {
             boolean deleted = (fl & 1) != 0;
             String text = m.getString("x");
             String body = deleted && text.isEmpty() ? Component.translatable("rppda.chat.deleted").getString()
-                    : (fl & 4) != 0 ? "* " + text : text;
+                    : (fl & 8) != 0 ? noteCard(text) : (fl & 4) != 0 ? "* " + text : text;
             List<FormattedCharSequence> lines = font.split(Component.literal(Ui.up(body)), inner);
             List<FormattedCharSequence> quote = null;
             if (m.getInt("r") > 0) {
@@ -2029,6 +2329,10 @@ public class PdaScreen extends Screen {
                     t.putInt("chat", chatRow.getInt("id"));
                     t.putInt("seq", seq);
                 }));
+                ix -= 15;
+            }
+            if ((m.getInt("fl") & 8) != 0 && !b.own) {
+                acceptNoteIcon(g, ix, by, m);
                 ix -= 15;
             }
             if (canWrite) {

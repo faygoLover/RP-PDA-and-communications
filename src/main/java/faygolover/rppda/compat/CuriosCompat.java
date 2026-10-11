@@ -16,6 +16,16 @@ public final class CuriosCompat {
 
     private static final boolean LOADED = ModList.get().isLoaded("curios");
 
+    public static boolean loaded() {
+        return LOADED;
+    }
+
+    /** Предметы только в своём слоте «pda». */
+    public static List<ItemStack> slotStacks(ServerPlayer sp) {
+        if (!LOADED) return List.of();
+        return Impl.slot(sp);
+    }
+
     /** КПК в слотах Curios: сначала свой слот «pda», потом остальные. */
     public static List<ItemStack> stacks(ServerPlayer sp, Predicate<ItemStack> filter) {
         if (!LOADED) return List.of();
@@ -23,6 +33,17 @@ public final class CuriosCompat {
     }
 
     private static final class Impl {
+        static List<ItemStack> slot(ServerPlayer sp) {
+            List<ItemStack> out = new ArrayList<>();
+            CuriosApi.getCuriosInventory(sp).ifPresent(inv -> inv.getStacksHandler("pda").ifPresent(h -> {
+                for (int i = 0; i < h.getSlots(); i++) {
+                    ItemStack s = h.getStacks().getStackInSlot(i);
+                    if (!s.isEmpty()) out.add(s);
+                }
+            }));
+            return out;
+        }
+
         static List<ItemStack> stacks(ServerPlayer sp, Predicate<ItemStack> filter) {
             List<ItemStack> own = new ArrayList<>(), other = new ArrayList<>();
             CuriosApi.getCuriosInventory(sp).ifPresent(inv -> {

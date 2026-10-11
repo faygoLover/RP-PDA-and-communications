@@ -36,7 +36,8 @@ final class DevShots {
         if (!from.isEmpty()) t.putString("lastFrom", from);
         t.putLong("time", time);
         t.putInt("unread", unread);
-        t.putString("mode", mode);
+        t.putString("notify", mode.equals("MUTED") ? "NONE" : mode.equals("PDA") ? "SILENT" : "SOUND");
+        t.putBoolean("out", mode.equals("CHAT"));
         t.putBoolean("write", !type.equals("CHANNEL"));
         t.putBoolean("member", true);
         t.putInt("count", type.equals("DM") ? 2 : 5);
@@ -66,6 +67,16 @@ final class DevShots {
             m.putString("rx", rx);
         }
         return m;
+    }
+
+    private static CompoundTag note(int id, String title, String text, String from) {
+        CompoundTag n = new CompoundTag();
+        n.putInt("id", id);
+        n.putString("title", title);
+        n.putString("text", text);
+        n.putLong("updated", System.currentTimeMillis() - id * 3_600_000L);
+        if (from != null) n.putString("from", from);
+        return n;
     }
 
     private static CompoundTag look(String body, String screen, String style, String accent) {
@@ -115,7 +126,12 @@ final class DevShots {
 
     private static void plan() {
         long now = System.currentTimeMillis();
-        steps.add(new Object[]{(Runnable) () -> screen.receive("register", new CompoundTag()), "pda_register"});
+        steps.add(new Object[]{(Runnable) () -> {
+            CompoundTag r = new CompoundTag();
+            r.putBoolean("gm", true);
+            r.put("look", look("cassette", "green", "", "blue"));
+            screen.receive("register", r);
+        }, "pda_register"});
         steps.add(new Object[]{(Runnable) () -> {
             CompoundTag l = new CompoundTag();
             l.putString("name", "Док Хорхе");
@@ -198,6 +214,32 @@ final class DevShots {
             screen.receive("register", r);
             screen.openLookForShot();
         }, "pda_look_disco"});
+        steps.add(new Object[]{(Runnable) () -> {
+            screen.receive("state", state(false));
+            CompoundTag n = new CompoundTag();
+            ListTag list = new ListTag();
+            list.add(note(2, "Склад", "Код двери: 4512\nНе забыть фонарь", null));
+            list.add(note(1, "Маршрут до станции", "Через мост, потом налево у вышки.", "Сержант"));
+            n.put("list", list);
+            screen.receive("notes", n);
+            screen.setPage(PdaScreen.Page.NOTES);
+        }, "pda_notes"});
+        steps.add(new Object[]{(Runnable) () -> screen.openNoteForShot(note(2, "Склад", "Код двери: 4512\nНе забыть фонарь", null)), "pda_note"});
+        steps.add(new Object[]{(Runnable) () -> {
+            CompoundTag g = new CompoundTag();
+            CompoundTag r = row(7, "GROUP", "Отряд «Север»", "", "", now, 0, "CHAT");
+            g.put("row", r);
+            screen.receive("goto", g);
+            CompoundTag h = new CompoundTag();
+            h.putInt("chat", 7);
+            h.putInt("before", 0);
+            h.put("row", r);
+            ListTag ms = new ListTag();
+            ms.add(msg(41, 48213388, "Сержант Петров", now - 3_000_000, "Всем собраться у ворот.", 0, 0, "", ""));
+            ms.add(msg(42, 48213388, "Сержант Петров", now - 2_000_000, "Маршрут до станции\nЧерез мост, потом налево у вышки.", 8, 0, "", ""));
+            h.put("msgs", ms);
+            screen.receive("history", h);
+        }, "pda_chat_note"});
         String[][] combos = {{"sunset", "synth", ""}, {"wave", "green", ""}, {"neon", "synth", ""}, {"wood", "lcd", ""},
                 {"camo", "white", ""}, {"memphis", "blue", ""}, {"rainbow", "green", ""}, {"cassette", "white", ""},
                 {"navy", "blue", ""}, {"beige", "green", "modern"}};
@@ -212,9 +254,42 @@ final class DevShots {
         }
     }
 
+    private static int worldTicks, worldStep;
+
+    /** В мире ({@code -Pworld=<сохранение>}): КПК в руке — от первого лица и со стороны (спереди, сзади). */
+    private static void worldTick(Minecraft mc) {
+        if (mc.level == null || mc.player == null || mc.screen != null) return;
+        if (++worldTicks < 80) return;
+        if (worldTicks % 20 != 0) return;
+        Consumer<net.minecraft.network.chat.Component> log = c -> faygolover.rppda.RpPda.LOGGER.info("devshot: {}", c.getString());
+        String[] names = {"item_first", "item_front", "item_back", "item_modern_front", "item_modern_first"};
+        if (worldStep > 0) Screenshot.grab(mc.gameDirectory, names[worldStep - 1] + ".png", mc.getMainRenderTarget(), log);
+        if (worldStep >= names.length) {
+            mc.stop();
+            return;
+        }
+        boolean modern = worldStep >= 3;
+        net.minecraft.world.item.ItemStack stack = new net.minecraft.world.item.ItemStack(faygolover.rppda.item.ModItems.PDA.get());
+        CompoundTag p = stack.getOrCreateTagElement("rppda");
+        p.put("look", look(modern ? "beige" : "disco", "green", "", "neon"));
+        p.putString("rs", modern ? "modern" : "retro");
+        mc.player.getInventory().items.set(mc.player.getInventory().selected, stack);
+        mc.options.setCameraType(switch (worldStep) {
+            case 1, 3 -> net.minecraft.client.CameraType.THIRD_PERSON_FRONT;
+            case 2 -> net.minecraft.client.CameraType.THIRD_PERSON_BACK;
+            default -> net.minecraft.client.CameraType.FIRST_PERSON;
+        });
+        mc.player.setYRot(mc.player.getYRot() + (worldStep == 2 ? 70 : 0));
+        worldStep++;
+    }
+
     private static void tick(TickEvent.ClientTickEvent e) {
         if (e.phase != TickEvent.Phase.END) return;
         Minecraft mc = Minecraft.getInstance();
+        if (Boolean.getBoolean("rppda.devshot.world")) {
+            worldTick(mc);
+            return;
+        }
         if (step < 0) {
             if (mc.screen == null || mc.getOverlay() != null || mc.level != null) return;
             plan();

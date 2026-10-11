@@ -235,9 +235,68 @@ public final class PdaStore {
         });
     }
 
+    /** Учётка (удалённые — как нет). */
     @Nullable
     public Account account(int id) {
+        Account a = accounts.get(id);
+        return a == null || a.deleted ? null : a;
+    }
+
+    /** Учётка, даже удалённая (для подписей старых сообщений). */
+    @Nullable
+    public Account accountAny(int id) {
         return accounts.get(id);
+    }
+
+    /**
+     * Удалить учётку (ГМ): КПК с ней больше не работают, данных нет. Личные диалоги удаляются, из групп она
+     * выходит (её старые сообщения там остаются — «Удалённая учётка»), у других пропадает из контактов.
+     */
+    public void deleteAccount(Account a) {
+        if (a.kind == Account.Kind.SYSTEM || a.deleted) return;
+        a.deleted = true;
+        a.contacts.clear();
+        a.blocked.clear();
+        a.notes.clear();
+        a.invites.clear();
+        a.pwHash = a.pwSalt = null;
+        for (Integer id : new ArrayList<>(chatsOf(a.id))) {
+            Chat c = chats.get(id);
+            if (c == null) continue;
+            if (c.type == Chat.Type.DM) deleteChat(c);
+            else removeMember(c, a.id);
+        }
+        for (Chat c : chats.values()) c.invited.remove(a.id);
+        for (Account o : accounts.values()) {
+            if (o.contacts.remove(a.id) != null | o.blocked.remove(a.id)) accountsDirty = true;
+        }
+        lastAccount.values().removeIf(v -> v == a.id);
+        accountsDirty = true;
+        chatsDirty = true;
+        miscDirty = true;
+    }
+
+    private void deleteChat(Chat c) {
+        chats.remove(c.id);
+        logs.remove(c.id);
+        for (int m : c.members) {
+            Set<Integer> s = chatsOf.get(m);
+            if (s != null) s.remove(c.id);
+        }
+        if (c.members.size() == 2) {
+            Iterator<Integer> it = c.members.iterator();
+            dmIndex.remove(pair(it.next(), it.next()));
+        }
+        try {
+            Files.deleteIfExists(root.resolve("chats").resolve(c.id + ".dat"));
+            Path arch = root.resolve("archive").resolve(Integer.toString(c.id));
+            if (Files.isDirectory(arch)) try (var files = Files.list(arch)) {
+                for (Path f : files.toList()) Files.deleteIfExists(f);
+            }
+            Files.deleteIfExists(arch);
+        } catch (IOException e) {
+            log.warn("RP PDA: не удалить файлы чата {}: {}", c.id, e.toString());
+        }
     }
 
     public Account createAccount(Account.Kind kind, String name, @Nullable UUID owner) {
@@ -384,7 +443,8 @@ public final class PdaStore {
         cl.dirty = true;
         c.lastTime = time;
         c.lastSender = sender;
-        c.lastPreview = (flags & Message.NOTICE) != 0 ? "" : preview(text);
+        c.lastPreview = (flags & Message.NOTICE) != 0 ? ""
+                : (flags & Message.NOTE) != 0 ? "#note:" + preview(text.split("\n", 2)[0]) : preview(text);
         chatsDirty = true;
         return m;
     }

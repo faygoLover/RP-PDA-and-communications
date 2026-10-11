@@ -32,7 +32,7 @@ public final class ModItems {
     private static void tabs(BuildCreativeModeTabContentsEvent e) {
         if (e.getTabKey() == CreativeModeTabs.TOOLS_AND_UTILITIES) {
             e.accept(PDA);
-            if (e.hasPermissions()) e.accept(SYSTEM_PDA);
+            e.accept(SYSTEM_PDA);
         }
         if (e.getTabKey() == CreativeModeTabs.OP_BLOCKS && e.hasPermissions()) e.accept(SYSTEM_PDA);
     }

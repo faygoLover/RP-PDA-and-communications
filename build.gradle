@@ -37,6 +37,7 @@ minecraft {
             property 'forge.logging.console.level', 'debug'
             jvmArg '-Dfile.encoding=UTF-8'
             if (project.hasProperty('devshot')) jvmArg '-Drppda.devshot=true'
+            if (project.hasProperty('devshot') && project.hasProperty('world')) jvmArg '-Drppda.devshot.world=true'
             property 'mixin.env.remapRefMap', 'true'
             property 'mixin.env.refMapRemappingFile', "${projectDir}/build/createSrgToMcp/output.srg"
 
@@ -51,6 +52,7 @@ minecraft {
             workingDirectory project.file('run/client')
             property 'forge.enabledGameTestNamespaces', mod_id
             if (project.hasProperty('quickplay')) args '--quickPlayMultiplayer', project.property('quickplay')
+            if (project.hasProperty('world')) args '--quickPlaySingleplayer', project.property('world')
             if (project.hasProperty('username')) args '--username', project.property('username')
         }
 

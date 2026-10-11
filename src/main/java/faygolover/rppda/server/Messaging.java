@@ -128,20 +128,17 @@ public final class Messaging {
             boolean member = acc != null && c.has(acc.id) && !(c.type == Chat.Type.DM && acc.blocked.contains(from.id));
             Account.Notify mode = member ? acc.notify(c.id) : null;
             boolean line = false;
-            boolean plain = false;
-            if (member && mode == Account.Notify.CHAT && !(PdaConfig.forcePdaOnly && !admin)) line = true;
+            // В чат игры — только если игрок включил это для чата (и сервер разрешает), админам — всегда.
+            if (member && acc.chatOut.contains(c.id) && (PdaConfig.allowChatOutput || admin)) line = true;
             if (admin && c.type == Chat.Type.GLOBAL) line = true;
             // Диалог с Системой — это переписка с администрацией: её видят все админы в сети.
             if (admin && c.type == Chat.Type.DM && c.has(0) && from.id != 0) line = true;
             if (sp == forceLine) line = true;
-            if (!line && acc == null && !admin && c.type == Chat.Type.GLOBAL && !PdaConfig.hideWithoutPda) line = plain = true;
-            if (line) sendLine(sp, store, acc, c, m, from, admin, plain);
+            if (line) sendLine(sp, store, acc, c, m, from, admin, false);
 
             boolean self = acc != null && acc.id == from.id;
-            if (member && !self && !viewing) {
-                if (mode != Account.Notify.MUTED) ping(sp, acc);
-                sendUnread(sp);
-            }
+            if (member && !self && !viewing && mode == Account.Notify.SOUND) ping(sp, acc);
+            if (!self && (member || hudHas(sp, c))) sendUnread(sp);
         }
     }
 
@@ -167,7 +164,9 @@ public final class Messaging {
                     .append(Component.literal(name).withStyle(ChatFormatting.AQUA));
             default -> line.append(Component.literal(name).withStyle(ChatFormatting.AQUA));
         }
-        if (m.has(Message.ACTION)) line.append(Component.literal(" " + m.text).withStyle(ChatFormatting.ITALIC));
+        if (m.has(Message.NOTE)) line.append(Component.literal(": ").withStyle(ChatFormatting.GRAY))
+                .append(Component.translatable("rppda.note.line", m.text.split("\n", 2)[0]).withStyle(ChatFormatting.GOLD));
+        else if (m.has(Message.ACTION)) line.append(Component.literal(" " + m.text).withStyle(ChatFormatting.ITALIC));
         else line.append(Component.literal(": ").withStyle(ChatFormatting.GRAY)).append(Component.literal(m.text));
         if (plain) {
             sp.sendSystemMessage(line);
@@ -197,20 +196,35 @@ public final class Messaging {
     public static void sendUnread(ServerPlayer sp) {
         PdaStore store = PdaServer.store;
         if (store == null) return;
-        Integer actId = PdaServer.active.get(sp.getUUID());
-        Account a = actId == null ? null : store.account(actId);
+        Account a = hudAccount(sp);
         CompoundTag t = new CompoundTag();
         t.putBoolean("has", a != null);
         t.putInt("n", a == null ? 0 : unreadTotal(store, a, PdaServer.signalCut(sp, a)));
         Net.send(sp, "unread", t);
     }
 
+    /**
+     * Чей счётчик на HUD: КПК в слоте Curios «КПК» (если слот есть), иначе активный КПК.
+     */
+    @Nullable
+    static Account hudAccount(ServerPlayer sp) {
+        PdaStore store = PdaServer.store;
+        if (store == null) return null;
+        Integer id = Devices.slotMode() ? Devices.slotAccount(sp, store) : PdaServer.active.get(sp.getUUID());
+        return id == null ? null : store.account(id);
+    }
+
+    private static boolean hudHas(ServerPlayer sp, Chat c) {
+        Account h = hudAccount(sp);
+        return h != null && c.has(h.id);
+    }
+
     /** Непрочитанное: сообщения позже {@code cut} (связь пропала) не считаются, кроме диалога с Системой. */
     public static int unreadTotal(PdaStore store, Account a, long cut) {
-        int n = a.notify(Chat.GLOBAL_ID) == Account.Notify.MUTED ? 0 : unread(store, a, store.global(), cut);
+        int n = a.notify(Chat.GLOBAL_ID) == Account.Notify.NONE ? 0 : unread(store, a, store.global(), cut);
         for (int id : store.chatsOf(a.id)) {
             Chat c = store.chat(id);
-            if (c != null && a.notify(id) != Account.Notify.MUTED) n += unread(store, a, c, cut);
+            if (c != null && a.notify(id) != Account.Notify.NONE) n += unread(store, a, c, cut);
         }
         return n + a.invites.size();
     }

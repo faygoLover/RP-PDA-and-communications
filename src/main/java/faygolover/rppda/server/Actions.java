@@ -5,6 +5,7 @@ import faygolover.rppda.data.Account;
 import faygolover.rppda.data.Chat;
 import faygolover.rppda.data.ChatLog;
 import faygolover.rppda.data.Message;
+import faygolover.rppda.data.Note;
 import faygolover.rppda.data.PdaStore;
 import faygolover.rppda.item.ModItems;
 import faygolover.rppda.item.PdaItem;
@@ -33,10 +34,16 @@ public final class Actions {
     public static void handle(ServerPlayer sp, String op, CompoundTag d) {
         PdaStore store = PdaServer.store;
         if (store == null) return;
+        PdaServer.Session cur = PdaServer.sessions.get(sp.getUUID());
+        if (!op.equals("close") && !op.equals("open") && (cur == null || !cur.system) && faygolover.rpcore.api.RpCoreAPI.unconscious(sp)) {
+            PdaServer.close(sp);
+            return;
+        }
         switch (op) {
             case "open" -> PdaServer.openHotkey(sp);
             case "close" -> PdaServer.sessions.remove(sp.getUUID());
             case "register" -> register(sp, store);
+            case "register.npc" -> registerNpc(sp, store, d.getString("name").strip());
             case "unlock" -> unlock(sp, store, d.getString("pw"));
             case "look.hand" -> lookHand(sp, store, d);
             default -> {
@@ -90,6 +97,29 @@ public final class Actions {
         PdaItem.setLook(stack, a.look);
         PdaServer.flushPending(sp, a);
         store.setLastAccount(sp.getUUID(), a.id);
+        PdaServer.open(sp, a);
+        PdaServer.scan(sp);
+        toast(sp, "rppda.toast.registered", false, PdaItem.formatId(a.id));
+    }
+
+    /** ГМ регистрирует новый КПК сразу на NPC-учётку (владельца нет). */
+    private static void registerNpc(ServerPlayer sp, PdaStore store, String name) {
+        PdaServer.Session s = PdaServer.sessions.get(sp.getUUID());
+        if (!PdaServer.isGm(sp) || s == null || s.mode != PdaServer.Session.Mode.REGISTER) return;
+        if (name.isEmpty() || name.length() > TITLE_MAX) {
+            toast(sp, "rppda.err.title", true);
+            return;
+        }
+        ItemStack stack = sp.getItemInHand(s.hand);
+        if (!Devices.isPda(stack) || PdaItem.account(stack) != 0) {
+            PdaServer.close(sp);
+            return;
+        }
+        Account a = store.createAccount(Account.Kind.NPC, name, null);
+        a.look = PdaItem.look(stack);
+        PdaItem.bind(stack, a.id, a.issue, a.name);
+        PdaItem.setLook(stack, a.look);
+        store.gmLog(sp.getGameProfile().getName(), "npc", label(a));
         PdaServer.open(sp, a);
         PdaServer.scan(sp);
         toast(sp, "rppda.toast.registered", false, PdaItem.formatId(a.id));
@@ -186,11 +216,88 @@ public final class Actions {
                 Account.Notify[] modes = Account.Notify.values();
                 int m = d.getInt("mode");
                 if (m < 0 || m >= modes.length) return;
-                if (modes[m] == Account.Notify.CHAT) me.notify.remove(c.id);
+                if (modes[m] == Account.Notify.SOUND) me.notify.remove(c.id);
                 else me.notify.put(c.id, modes[m]);
                 store.markAccounts();
                 sendRow(sp, s, store, me, c);
                 if (!s.system) Messaging.sendUnread(sp);
+            }
+            case "chat.out" -> {
+                Chat c = store.chat(d.getInt("chat"));
+                if (c == null || !c.has(me.id)) return;
+                boolean on = d.getBoolean("on");
+                if (on && !PdaConfig.allowChatOutput && !PdaServer.isAdmin(sp)) {
+                    toast(sp, "rppda.err.chat_out_off", true);
+                    return;
+                }
+                if (on) me.chatOut.add(c.id);
+                else me.chatOut.remove(c.id);
+                store.markAccounts();
+                sendRow(sp, s, store, me, c);
+            }
+            case "notes.list" -> sendNotes(sp, me);
+            case "notes.save" -> {
+                String title = d.getString("title").strip(), text = d.getString("text");
+                if (title.isEmpty()) title = Note.firstLine(text);
+                if (title.length() > Note.TITLE_MAX) title = title.substring(0, Note.TITLE_MAX);
+                if (text.length() > Note.TEXT_MAX) text = text.substring(0, Note.TEXT_MAX);
+                int id = d.getInt("id");
+                Note n = null;
+                for (Note o : me.notes) if (o.id == id) n = o;
+                if (n == null) {
+                    if (me.notes.size() >= Note.LIMIT) {
+                        toast(sp, "rppda.err.notes_full", true);
+                        return;
+                    }
+                    n = new Note(me.nextNote++, title, text);
+                    n.created = System.currentTimeMillis();
+                    me.notes.add(n);
+                }
+                n.title = title;
+                n.text = text;
+                n.updated = System.currentTimeMillis();
+                store.markAccounts();
+                sendNotes(sp, me);
+                CompoundTag t = new CompoundTag();
+                t.putInt("id", n.id);
+                Net.send(sp, "notes.saved", t);
+            }
+            case "notes.delete" -> {
+                int id = d.getInt("id");
+                me.notes.removeIf(n -> n.id == id);
+                store.markAccounts();
+                sendNotes(sp, me);
+            }
+            case "notes.share" -> {
+                Note n = null;
+                for (Note o : me.notes) if (o.id == d.getInt("id")) n = o;
+                Chat c = store.chat(d.getInt("chat"));
+                if (n == null || c == null) return;
+                String err = Messaging.check(me, c, "note", s.system ? null : sp);
+                if (err != null) {
+                    toast(sp, err, true);
+                    return;
+                }
+                Messaging.post(c, me, n.title + "\n" + n.text, 0, Message.NOTE, s.system ? sp.getGameProfile().getName() : null, null);
+                toast(sp, "rppda.toast.note_shared", false);
+            }
+            case "notes.accept" -> {
+                Chat c = store.chat(d.getInt("chat"));
+                if (c == null || !canRead(s, me, c)) return;
+                Message m = store.log(c).find(d.getInt("seq"));
+                if (m == null || !m.has(Message.NOTE) || m.deleted()) return;
+                if (me.notes.size() >= Note.LIMIT) {
+                    toast(sp, "rppda.err.notes_full", true);
+                    return;
+                }
+                int nl = m.text.indexOf('\n');
+                Note n = new Note(me.nextNote++, nl < 0 ? m.text : m.text.substring(0, nl), nl < 0 ? "" : m.text.substring(nl + 1));
+                n.created = n.updated = System.currentTimeMillis();
+                n.from = Views.nameFor(store, me, m.sender);
+                me.notes.add(n);
+                store.markAccounts();
+                toast(sp, "rppda.toast.note_added", false);
+                sendNotes(sp, me);
             }
             case "dm" -> {
                 if (noSignal(sp, s)) return;
@@ -326,6 +433,13 @@ public final class Actions {
         t.putInt("before", before);
         t.putBoolean("more", from > 1);
         long cut = Views.cut(sp, s);
+        Account viewer = store.account(s.acting);
+        if (c.type == Chat.Type.GLOBAL && viewer != null && viewer.id != 0) {
+            // Новый КПК не знает, что писали в общем чате до его появления.
+            List<Message> seen = new ArrayList<>();
+            for (Message m : msgs) if (m.time >= viewer.created) seen.add(m);
+            msgs = seen;
+        }
         if (cut != Long.MAX_VALUE && !PdaServer.emergency(c)) {
             // Без связи — только то, что пришло до её пропажи.
             List<Message> seen = new ArrayList<>();
@@ -335,6 +449,14 @@ public final class Actions {
         t.put("msgs", Views.page(store, s, c, msgs));
         t.put("row", Views.row(store, store.account(s.acting), c, s, cut));
         Net.send(sp, "history", t);
+    }
+
+    private static void sendNotes(ServerPlayer sp, Account me) {
+        ListTag l = new ListTag();
+        for (int i = me.notes.size() - 1; i >= 0; i--) l.add(me.notes.get(i).save());
+        CompoundTag t = new CompoundTag();
+        t.put("list", l);
+        Net.send(sp, "notes", t);
     }
 
     /** Окно КПК без связи: сказать и вернуть true. */
@@ -716,6 +838,23 @@ public final class Actions {
                 if (a == null || a.owner == null) return;
                 setPlayerSignal(store, a.owner, a.name, d.getBoolean("on"), gm);
                 refreshAccount(sp, store, a);
+            }
+            case "sys.delete" -> {
+                Account a = target(store, d);
+                if (a == null) return;
+                String who = label(a);
+                // Окна с этой учёткой закрываются, КПК с ней больше не работают.
+                for (ServerPlayer p : sp.server.getPlayerList().getPlayers()) {
+                    PdaServer.Session o = PdaServer.sessions.get(p.getUUID());
+                    if (o != null && !o.system && o.device == a.id) PdaServer.close(p);
+                    if (o != null && o.system && o.acting == a.id) o.acting = 0;
+                }
+                PdaServer.holders.remove(a.id);
+                store.deleteAccount(a);
+                store.gmLog(gm, "delete_account", who);
+                toast(sp, "rppda.toast.deleted", false, who);
+                for (ServerPlayer p : sp.server.getPlayerList().getPlayers()) PdaServer.scan(p);
+                Views.sendState(sp, s);
             }
             case "sys.character" -> {
                 setCharacter(store, sp, d.getBoolean("on"));

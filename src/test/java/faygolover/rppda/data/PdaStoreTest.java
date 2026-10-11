@@ -31,7 +31,7 @@ class PdaStoreTest {
         assertTrue(a.id >= 10_000_000 && a.id <= 99_999_999);
         a.contacts.put(b.id, "с рынка");
         a.blocked.add(12345678);
-        a.notify.put(Chat.GLOBAL_ID, Account.Notify.MUTED);
+        a.notify.put(Chat.GLOBAL_ID, Account.Notify.NONE);
         a.pwSalt = Passwords.newSalt();
         a.pwHash = Passwords.hash("секрет", a.pwSalt);
         s.markAccounts();
@@ -50,7 +50,7 @@ class PdaStoreTest {
         assertEquals(owner, a2.owner);
         assertEquals("с рынка", a2.contacts.get(b.id));
         assertTrue(a2.blocked.contains(12345678));
-        assertEquals(Account.Notify.MUTED, a2.notify(Chat.GLOBAL_ID));
+        assertEquals(Account.Notify.NONE, a2.notify(Chat.GLOBAL_ID));
         assertTrue(Passwords.check("секрет", a2.pwSalt, a2.pwHash));
         assertFalse(Passwords.check("неверно", a2.pwSalt, a2.pwHash));
         Chat dm2 = r.findDm(b.id, a.id);

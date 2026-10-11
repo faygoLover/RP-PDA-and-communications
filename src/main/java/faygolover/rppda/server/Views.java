@@ -20,13 +20,16 @@ public final class Views {
     private Views() {}
 
     /** Имя учётки глазами {@code viewer}: его подпись контакта, иначе имя. */
+    /** Удалённая учётка — клиент подписывает «Удалённая учётка». */
+    public static final String DELETED = "#deleted";
+
     public static String nameFor(PdaStore store, @Nullable Account viewer, int id) {
         if (viewer != null) {
             String label = viewer.contacts.get(id);
             if (label != null && !label.isEmpty()) return label;
         }
-        Account a = store.account(id);
-        return a == null ? "?" : a.name;
+        Account a = store.accountAny(id);
+        return a == null ? "?" : a.deleted ? DELETED : a.name;
     }
 
     static void sendState(ServerPlayer sp, PdaServer.Session s) {
@@ -48,6 +51,7 @@ public final class Views {
         t.putBoolean("pw", a.hasPassword());
         t.putInt("maxLen", faygolover.rppda.config.PdaConfig.maxLength);
         t.putString("style", faygolover.rppda.config.PdaConfig.style);
+        t.putBoolean("allowOut", faygolover.rppda.config.PdaConfig.allowChatOutput || PdaServer.isAdmin(sp));
 
         List<Chat> list = new ArrayList<>();
         list.add(store.global());
@@ -154,9 +158,11 @@ public final class Views {
             }
         } else t.putString("title", c.title);
         t.putInt("unread", c.has(viewer.id) ? Messaging.unread(viewer, c) : 0);
-        t.putString("mode", viewer.notify(c.id).name());
-        t.putString("last", c.lastPreview);
-        t.putLong("time", c.lastTime);
+        t.putString("notify", viewer.notify(c.id).name());
+        t.putBoolean("out", viewer.chatOut.contains(c.id));
+        boolean before = c.type == Chat.Type.GLOBAL && viewer.id != 0 && c.lastTime < viewer.created;
+        t.putString("last", before ? "" : c.lastPreview);
+        t.putLong("time", before ? 0 : c.lastTime);
         if (c.lastSeq > 0 && c.lastSender != 0) t.putString("lastFrom", nameFor(store, viewer, c.lastSender));
         t.putBoolean("write", c.canWrite(viewer.id));
         t.putBoolean("isAdmin", c.admin == viewer.id && c.isGroup());
@@ -173,6 +179,7 @@ public final class Views {
         t.putString("n", m.sender == 0 ? store.system().name : nameFor(store, viewer, m.sender));
         Account from = store.account(m.sender);
         if (from != null && from.owner != null) t.putUUID("o", from.owner);
+        t.putInt("fs", m.sender);
         t.putLong("t", m.time);
         t.putString("x", m.deleted() && !s.system ? "" : m.text);
         t.putInt("fl", m.flags);

@@ -11,14 +11,20 @@ import java.util.List;
  */
 public final class Look {
     public static final List<String> STYLES = List.of("", "retro", "modern");
-    public static final List<String> BODIES = List.of(
+    /** Корпуса. Аддоны добавляют свои через {@link #registerBody} (на сервере и клиенте, при загрузке мода). */
+    public static final List<String> BODIES = new java.util.concurrent.CopyOnWriteArrayList<>(List.of(
             "beige", "graphite", "olive", "navy", "white", "khaki", "orange",
-            "camo", "wood", "duo", "worn", "field", "rainbow", "sunset", "neon", "memphis", "cassette", "wave", "disco");
+            "camo", "wood", "duo", "worn", "field", "rainbow", "sunset", "neon", "memphis", "cassette", "wave", "disco"));
+
+    public static void registerBody(String id) {
+        if (!BODIES.contains(id)) BODIES.add(id);
+    }
+
     public static final List<String> SCREENS = List.of("green", "white", "blue", "lcd", "synth");
     public static final List<String> ACCENTS = List.of("blue", "green", "orange", "violet", "neon");
     public static final int MODEL_MAX = 24;
 
-    /** "" — как решит сервер/игрок; иначе вид этого КПК («ретро»/«современный») главнее всего. */
+    /** "" — вид по умолчанию из конфига сервера; иначе вид этого КПК («ретро»/«современный»), заданный при выдаче. */
     public String style = "";
     public String body = "beige";
     public String screen = "green";

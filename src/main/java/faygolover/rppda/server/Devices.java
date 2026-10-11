@@ -17,7 +17,7 @@ import java.util.List;
 public final class Devices {
     private Devices() {}
 
-    public enum Status { NEW, OK, LOCKED, DISABLED }
+    public enum Status { NEW, OK, LOCKED, DISABLED, DELETED }
 
     /**
      * Все КПК игрока в порядке выбора активного: основная рука → вторая рука → слот Curios «КПК» (и другие слоты
@@ -39,6 +39,20 @@ public final class Devices {
         return out;
     }
 
+    /** Счётчик на HUD — по КПК в слоте Curios «КПК» (если Curios стоит и слот включён). */
+    public static boolean slotMode() {
+        return CuriosCompat.loaded() && faygolover.rppda.config.PdaCommonConfig.curiosSlot();
+    }
+
+    /** Учётка рабочего КПК в слоте Curios «КПК» или null. */
+    @Nullable
+    public static Integer slotAccount(ServerPlayer sp, PdaStore store) {
+        for (ItemStack s : CuriosCompat.slotStacks(sp)) {
+            if (isPda(s) && status(s, store) == Status.OK) return PdaItem.account(s);
+        }
+        return null;
+    }
+
     public static boolean isPda(ItemStack s) {
         return !s.isEmpty() && s.getItem() instanceof PdaItem;
     }
@@ -53,6 +67,8 @@ public final class Devices {
     public static Status status(ItemStack s, PdaStore store) {
         int acc = PdaItem.account(s);
         if (acc <= 0) return Status.NEW;
+        Account any = store.accountAny(acc);
+        if (any != null && any.deleted) return Status.DELETED;
         Account a = store.account(acc);
         if (a == null || a.kind == Account.Kind.SYSTEM || PdaItem.issue(s) != a.issue) return Status.DISABLED;
         return a.locked ? Status.LOCKED : Status.OK;

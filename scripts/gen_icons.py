@@ -329,12 +329,20 @@ def i_mask(d):
     d.arc([20, 38, 44, 54], 20, 160, fill=0, width=W - 1)
 
 
+def i_note(d):
+    d.polygon([(10, 6), (54, 6), (54, 42), (38, 58), (10, 58)], outline=255, width=W)
+    d.line([(38, 58), (38, 42), (54, 42)], fill=255, width=W - 1)
+    for y in (18, 28):
+        d.line([(18, y), (46, y)], fill=255, width=W - 2)
+    d.line([(18, 38), (32, 38)], fill=255, width=W - 2)
+
+
 ICONS = [i_chats, i_contacts, i_profile, i_lock, i_unlock, i_close, i_back, i_send,
          i_plus, i_group, i_channel, i_bell, i_pda_only, i_mute, i_members, i_leave,
          i_kick, i_crown, i_reply, i_trash, i_copy, i_key, i_silent, i_sound,
          i_accounts, i_log, i_switch, i_give, i_teleport, i_edit, i_block, i_check,
          i_search, i_message, i_pda, i_refresh, i_person_add, i_system, i_globe, i_eye,
-         i_brush, i_signal, i_no_signal, i_mask]
+         i_brush, i_signal, i_no_signal, i_mask, i_note]
 
 
 def atlas():

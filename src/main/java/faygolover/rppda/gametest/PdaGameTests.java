@@ -110,6 +110,19 @@ public final class PdaGameTests {
         Actions.handle(p, op, t);
     }
 
+    /** Начать диалог из окна КПК (как кнопка «Написать по ID» и отправка). */
+    static void startDm(ServerPlayer p, Account from, Account to, String text) {
+        PdaServer.openFromHand(p, InteractionHand.MAIN_HAND);
+        CompoundTag dm = new CompoundTag();
+        dm.putInt("id", to.id);
+        Actions.handle(p, "dm", dm);
+        Chat c = store().findDm(from.id, to.id);
+        CompoundTag send = new CompoundTag();
+        send.putInt("chat", c.id);
+        send.putString("text", text);
+        Actions.handle(p, "chat.send", send);
+    }
+
     static List<Message> messages(Chat c) {
         ChatLog log = store().log(c);
         return log.messages;
@@ -183,12 +196,18 @@ public final class PdaGameTests {
     public static void tellGoesToDm(GameTestHelper h) {
         ServerPlayer a = player(h), b = player(h);
         Account aa = register(h, a), bb = register(h, b);
-        cmd(a, "msg " + b.getGameProfile().getName() + " привет, это тест");
+        // По нику между игроками — нельзя (по умолчанию).
+        cmd(a, "msg " + b.getGameProfile().getName() + " привет по нику");
+        h.assertTrue(store().findDm(aa.id, bb.id) == null, "/tell по нику игроку не работает");
+        // По ID без диалога — нельзя; диалог начинают в КПК.
+        cmd(a, "msg " + String.format("%08d", bb.id) + " привет по ID");
+        h.assertTrue(store().findDm(aa.id, bb.id) == null || store().findDm(aa.id, bb.id).lastSeq == 0, "без диалога /tell по ID не работает");
+        startDm(a, aa, bb, "первое из КПК");
+        cmd(a, "msg " + String.format("%08d", bb.id) + " привет, это тест");
         Chat dm = store().findDm(aa.id, bb.id);
-        h.assertTrue(dm != null, "/tell создал личный диалог");
         List<Message> ms = messages(dm);
         h.assertTrue(!ms.isEmpty() && ms.get(ms.size() - 1).text.equals("привет, это тест") && ms.get(ms.size() - 1).sender == aa.id,
-                "сообщение лежит в диалоге от отправителя");
+                "/tell по ID — в диалог от отправителя");
         // /me — действие рядом, в обычный чат, а не в КПК.
         int before = store().global().lastSeq;
         cmd(b, "me машет рукой");
@@ -313,15 +332,16 @@ public final class PdaGameTests {
     public static void noSignalBlocksExceptSystem(GameTestHelper h) {
         ServerPlayer a = player(h), b = player(h);
         Account aa = register(h, a), bb = register(h, b);
+        startDm(a, aa, bb, "привет");
         Actions.setSignal(store(), aa, false, "test");
-        // Без связи писать нельзя.
-        cmd(a, "msg " + b.getGameProfile().getName() + " есть кто?");
         Chat dm = store().findDm(aa.id, bb.id);
-        h.assertTrue(dm == null || messages(dm).isEmpty(), "без связи сообщение не ушло");
+        int before = dm.lastSeq;
+        // Без связи писать нельзя.
+        cmd(a, "msg " + String.format("%08d", bb.id) + " есть кто?");
+        h.assertTrue(dm.lastSeq == before, "без связи сообщение не ушло");
         // Ему пишут — сообщение ждёт на сервере, но окно его не показывает до возврата связи.
-        cmd(b, "msg " + a.getGameProfile().getName() + " ты где?");
-        dm = store().findDm(aa.id, bb.id);
-        h.assertTrue(dm != null && !messages(dm).isEmpty(), "входящее сохранено");
+        cmd(b, "msg " + String.format("%08d", aa.id) + " ты где?");
+        h.assertTrue(dm.lastSeq == before + 1, "входящее сохранено");
         Message incoming = messages(dm).get(messages(dm).size() - 1);
         h.assertTrue(incoming.time >= PdaServer.signalCut(a, aa), "входящее — позже пропажи связи (скрыто)");
         // Диалог с Системой работает и без связи.
@@ -405,6 +425,99 @@ public final class PdaGameTests {
             if (PdaItem.account(s) == 0) given = s;
         }
         h.assertTrue(after == before + 1 && PdaItem.look(given).body.equals("disco") && PdaItem.look(given).screen.equals("lcd"), "/rppda give");
+        remove(h, p);
+        h.succeed();
+    }
+
+    @GameTest(template = T)
+    public static void whisperFadesWithDistance(GameTestHelper h) {
+        var rnd = net.minecraft.util.RandomSource.create(42);
+        String text = "встречаемся у старой станции в полночь, никому не говори";
+        String g1 = faygolover.rppda.server.ChatInterceptAccess.garble(text, 0.35, rnd);
+        String g2 = faygolover.rppda.server.ChatInterceptAccess.garble(text, 0.65, rnd);
+        h.assertTrue(g1.contains("...") && !g1.equals(text), "шёпот издалека — обрывками");
+        h.assertTrue(g2.contains("...") && g2.split("\\s+").length <= text.split("\\s+").length, "ещё дальше — меньше слов");
+        int r = faygolover.rppda.config.PdaConfig.whisperRadius;
+        var name = net.minecraft.network.chat.Component.literal("X");
+        h.assertTrue(faygolover.rppda.server.ChatInterceptAccess.heardWhisper(name, text, r, rnd).contains(text), "в радиусе — ясно");
+        h.assertTrue(faygolover.rppda.server.ChatInterceptAccess.heardWhisper(name, text, r * 1.6, rnd).contains("*"), "почти на краю — «*шёпот*»");
+        h.assertTrue(faygolover.rppda.server.ChatInterceptAccess.heardWhisper(name, text, r * 2, rnd).isEmpty(), "дальше — ничего");
+        h.succeed();
+    }
+
+    @GameTest(template = T)
+    public static void notesShareAndAccept(GameTestHelper h) {
+        ServerPlayer a = player(h), b = player(h);
+        Account aa = register(h, a), bb = register(h, b);
+        startDm(a, aa, bb, "привет");
+        PdaServer.openFromHand(a, InteractionHand.MAIN_HAND);
+        CompoundTag save = new CompoundTag();
+        save.putInt("id", 0);
+        save.putString("title", "Склад");
+        save.putString("text", "Код двери: 4512");
+        act(a, "notes.save", save);
+        h.assertTrue(aa.notes.size() == 1 && aa.notes.get(0).title.equals("Склад"), "заметка сохранена");
+        Chat dm = store().findDm(aa.id, bb.id);
+        CompoundTag share = new CompoundTag();
+        share.putInt("id", aa.notes.get(0).id);
+        share.putInt("chat", dm.id);
+        act(a, "notes.share", share);
+        Message m = messages(dm).get(messages(dm).size() - 1);
+        h.assertTrue(m.has(Message.NOTE), "заметкой поделились в диалоге");
+        PdaServer.openFromHand(b, InteractionHand.MAIN_HAND);
+        CompoundTag acc = new CompoundTag();
+        acc.putInt("chat", dm.id);
+        acc.putInt("seq", m.seq);
+        act(b, "notes.accept", acc);
+        h.assertTrue(bb.notes.size() == 1 && bb.notes.get(0).text.equals("Код двери: 4512") && bb.notes.get(0).from != null,
+                "получатель добавил себе — с пометкой от кого");
+        remove(h, a);
+        remove(h, b);
+        h.succeed();
+    }
+
+    @GameTest(template = T)
+    public static void npcAtRegistrationAndDelete(GameTestHelper h) {
+        ServerPlayer gm = player(h, true), p = player(h);
+        gm.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(ModItems.PDA.get()));
+        PdaServer.openFromHand(gm, InteractionHand.MAIN_HAND);
+        CompoundTag npc = new CompoundTag();
+        npc.putString("name", "Торговец");
+        act(gm, "register.npc", npc);
+        Account n = store().account(PdaItem.account(gm.getMainHandItem()));
+        h.assertTrue(n != null && n.kind == Account.Kind.NPC && n.owner == null && n.name.equals("Торговец"), "NPC-учётка при регистрации");
+        Account pa = register(h, p);
+        startDm(p, pa, n, "есть товар?");
+        h.assertTrue(store().findDm(pa.id, n.id) != null, "диалог с NPC есть");
+        gm.setItemInHand(InteractionHand.OFF_HAND, new ItemStack(ModItems.SYSTEM_PDA.get()));
+        PdaServer.openFromHand(gm, InteractionHand.OFF_HAND);
+        CompoundTag del = new CompoundTag();
+        del.putInt("id", n.id);
+        act(gm, "sys.delete", del);
+        h.assertTrue(store().account(n.id) == null, "учётка удалена");
+        h.assertTrue(store().findDm(pa.id, n.id) == null, "её личные диалоги удалены");
+        h.assertTrue(faygolover.rppda.server.Devices.status(gm.getMainHandItem(), store()) == faygolover.rppda.server.Devices.Status.DELETED,
+                "КПК с ней мёртв");
+        remove(h, gm);
+        remove(h, p);
+        h.succeed();
+    }
+
+    @GameTest(template = T)
+    public static void chatOutputNeedsServerPermission(GameTestHelper h) {
+        ServerPlayer p = player(h);
+        Account a = register(h, p);
+        PdaServer.openFromHand(p, InteractionHand.MAIN_HAND);
+        CompoundTag on = new CompoundTag();
+        on.putInt("chat", Chat.GLOBAL_ID);
+        on.putBoolean("on", true);
+        act(p, "chat.out", on);
+        h.assertTrue(!a.chatOut.contains(Chat.GLOBAL_ID), "по умолчанию вывод в чат игры игроку недоступен");
+        CompoundTag mode = new CompoundTag();
+        mode.putInt("chat", Chat.GLOBAL_ID);
+        mode.putInt("mode", 2);
+        act(p, "chat.notify", mode);
+        h.assertTrue(a.notify(Chat.GLOBAL_ID) == Account.Notify.NONE, "без уведомлений");
         remove(h, p);
         h.succeed();
     }

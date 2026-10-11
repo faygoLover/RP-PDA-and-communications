@@ -162,8 +162,10 @@ def cassette(img):
     d.rectangle([0, 0, W, H], fill=(56, 56, 60))
     for i, c in enumerate([(250, 210, 40), (245, 150, 30), (230, 60, 50), (190, 30, 90)]):
         d.rectangle([0, H - 12 + i * 2, W, H - 11 + i * 2], fill=c)
-        d.rectangle([0, BOTTOM + 1 + i * 2, 8, BOTTOM + 1 + i * 2], fill=c)
-        d.rectangle([W - 9, BOTTOM + 1 + i * 2, W, BOTTOM + 1 + i * 2], fill=c)
+        # Полосы по бокам — у верха экрана, от края корпуса до рамки экрана.
+        y = SY + 10 + i * 3
+        d.rectangle([0, y, SX, y + 1], fill=c)
+        d.rectangle([W - SX - 1, y, W, y + 1], fill=c)
 
 
 def band_path(d, segments):
@@ -261,6 +263,109 @@ def item_icon(body_img, path):
     img.save(path)
 
 
+DISPLAY = {
+    "ground": {"rotation": [0, 0, 0], "translation": [0, 2, 0], "scale": [0.5, 0.5, 0.5]},
+    "head": {"rotation": [0, 180, 0], "translation": [0, 13, 7], "scale": [1, 1, 1]},
+    "thirdperson_righthand": {"rotation": [0, 0, 0], "translation": [0, 3, 1], "scale": [0.55, 0.55, 0.55]},
+    "firstperson_righthand": {"rotation": [0, -90, 25], "translation": [1.13, 3.2, 1.13], "scale": [0.68, 0.68, 0.68]},
+    "fixed": {"rotation": [0, 180, 0], "scale": [1, 1, 1]},
+}
+
+
+def sheet(body_img, screen, keys, path, back_body=None):
+    """Текстура 3D-модели 16×16: слева (8×14) — лицо с экраном, справа — задняя крышка."""
+    img = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
+    px = img.load()
+    pat = body_img.convert("RGB").resize((8, 14), Image.BOX)
+    back = (back_body or body_img).convert("RGB").resize((8, 14), Image.BOX)
+    for y in range(14):
+        for x in range(8):
+            px[x, y + 1] = pat.getpixel((x, y)) + (255,)
+            px[8 + x, y + 1] = back.getpixel((x, y)) + (255,)
+    light, dark = screen
+    for y in range(2, 8):
+        for x in range(1, 7):
+            px[x, y + 1] = dark + (255,)
+    for x in range(2, 6):
+        px[x, 4] = light + (255,)
+    px[2, 6] = px[3, 6] = light + (255,)
+    for x in (1, 3, 5):
+        px[x, 11] = keys + (255,)
+        px[x + 1, 11] = keys + (255,)
+    px[6, 2] = (90, 255, 90, 255)
+    # Сзади: крышка отсека и винты.
+    cover = tuple(max(0, c - 34) for c in back.getpixel((4, 8)))
+    for x in range(9, 15):
+        px[x, 7] = cover + (255,)
+        px[x, 13] = cover + (255,)
+    for y in range(7, 14):
+        px[9, y] = cover + (255,)
+        px[14, y] = cover + (255,)
+    px[9, 2] = px[14, 2] = cover + (255,)
+    for x in range(10, 14):
+        px[x, 4] = tuple(min(255, c + 30) for c in back.getpixel((4, 3))) + (255,)
+    img.save(path)
+
+
+def model3d(name):
+    """Тонкая пластина 8×14×1: лицо (south) — левая половина текстуры, зад (north) — правая."""
+    t = "rppda:item/" + name
+    face = lambda uv: {"uv": uv, "texture": "#sheet"}
+    return {
+        "textures": {"sheet": t, "particle": t},
+        "elements": [{
+            "from": [4, 1, 7.5], "to": [12, 15, 8.5],
+            "faces": {
+                "south": face([0, 1, 8, 15]),
+                "north": face([8, 1, 16, 15]),
+                "east": face([7, 1, 8, 15]),
+                "west": face([0, 1, 1, 15]),
+                "up": face([0, 1, 8, 2]),
+                "down": face([0, 14, 8, 15]),
+            },
+        }],
+        "display": DISPLAY,
+    }
+
+
+def variant(model_dir, name, gui_texture):
+    """Модель предмета: в руке, на земле, в рамке — объёмная; в инвентаре — плоская картинка."""
+    with open(os.path.join(model_dir, name + "_3d.json"), "w", encoding="utf-8") as f:
+        json.dump(model3d(name + "_3d"), f, indent=2)
+    with open(os.path.join(model_dir, name + ".json"), "w", encoding="utf-8") as f:
+        json.dump({
+            "loader": "forge:separate_transforms",
+            "base": {"parent": "rppda:item/" + name + "_3d"},
+            "perspectives": {"gui": {"parent": "minecraft:item/generated", "textures": {"layer0": gui_texture}}},
+        }, f, indent=2)
+
+
+ACCENTS = [("blue", (79, 163, 255)), ("green", (79, 208, 122)), ("orange", (255, 154, 60)), ("violet", (167, 123, 255)), ("neon", (255, 79, 200))]
+
+
+def modern_icon(accent, path):
+    img = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
+    px = img.load()
+    for y in range(1, 15):
+        for x in range(4, 12):
+            px[x, y] = (36, 40, 48, 255)
+    for y in range(1, 15):
+        px[4, y] = (58, 64, 74, 255)
+        px[11, y] = (22, 24, 30, 255)
+    for x in range(4, 12):
+        px[x, 1] = (58, 64, 74, 255)
+        px[x, 14] = (22, 24, 30, 255)
+    for y in range(3, 12):
+        for x in range(5, 11):
+            px[x, y] = (14, 22, 33, 255)
+    for x in range(6, 10):
+        px[x, 5] = accent + (255,)
+    px[6, 7] = px[7, 7] = (200, 210, 220, 255)
+    px[6, 9] = px[7, 9] = px[8, 9] = (120, 130, 140, 255)
+    px[7, 13] = px[8, 13] = accent + (255,)
+    img.save(path)
+
+
 def main():
     skin_dir = os.path.join(RES, "textures", "gui", "skin")
     item_dir = os.path.join(RES, "textures", "item")
@@ -277,11 +382,24 @@ def main():
             t.save(os.path.join(skin_dir, bid + ".png"))
         sw = img.crop((ox, oy, ox + 84, oy + 60)).resize((28, 20), Image.BOX)
         swatches.paste(sw, ((n % 8) * 28, (n // 8) * 20))
-        item_icon(img, os.path.join(item_dir, "pda.png" if n == 0 else "pda_" + bid + ".png"))
-        if n > 0:
-            with open(os.path.join(model_dir, "pda_" + bid + ".json"), "w", encoding="utf-8") as f:
-                json.dump({"parent": "minecraft:item/generated", "textures": {"layer0": "rppda:item/pda_" + bid}}, f, indent=2)
-            overrides.append({"predicate": {"rppda:skin": round(n / 100, 2)}, "model": "rppda:item/pda_" + bid})
+        item_icon(img, os.path.join(item_dir, "pda_" + bid + ".png"))
+        if n == 0:
+            item_icon(img, os.path.join(item_dir, "pda.png"))
+        sheet(img, ((110, 240, 130), (24, 90, 44)), (40, 38, 36), os.path.join(item_dir, "pda_" + bid + "_3d.png"))
+        variant(model_dir, "pda_" + bid, "rppda:item/pda_" + bid)
+        overrides.append({"predicate": {"rppda:skin": round(n / 100, 2)}, "model": "rppda:item/pda_" + bid})
+    # Современный КПК — тёмный, экран в цвет акцента (свойство 0,5 + номер акцента / 100).
+    dark = Image.new("RGBA", (W, H), (36, 40, 48, 255))
+    for i, (aid, col) in enumerate(ACCENTS):
+        name = "pda_modern_" + aid
+        modern_icon(col, os.path.join(item_dir, name + ".png"))
+        sheet(dark, (col, (14, 22, 33)), (70, 76, 86), os.path.join(item_dir, name + "_3d.png"))
+        variant(model_dir, name, "rppda:item/" + name)
+        overrides.append({"predicate": {"rppda:skin": round(0.5 + i / 100, 2)}, "model": "rppda:item/" + name})
+    # Системный КПК — красный корпус, янтарный экран.
+    red = Image.new("RGBA", (W, H), (150, 48, 40, 255))
+    sheet(red, ((255, 184, 64), (90, 46, 8)), (60, 24, 22), os.path.join(item_dir, "system_pda_3d.png"))
+    variant(model_dir, "system_pda", "rppda:item/system_pda")
     swatches.save(os.path.join(RES, "textures", "gui", "skin_swatches.png"))
     with open(os.path.join(model_dir, "pda.json"), "w", encoding="utf-8") as f:
         json.dump({"parent": "minecraft:item/generated", "textures": {"layer0": "rppda:item/pda"}, "overrides": overrides}, f, indent=2)

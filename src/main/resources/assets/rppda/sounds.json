@@ -1,6 +1,6 @@
 {
   "notify": {
     "subtitle": "subtitles.rppda.notify",
-    "sounds": [{ "name": "note/chime", "pitch": 1.6, "volume": 0.7 }]
+    "sounds": [{ "name": "minecraft:block.note_block.chime", "type": "event", "pitch": 1.6, "volume": 0.8 }]
   }
 }

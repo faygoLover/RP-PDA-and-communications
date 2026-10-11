@@ -17,14 +17,21 @@ public final class Skins {
 
     public static final ResourceLocation SWATCHES = new ResourceLocation(RpPda.MODID, "textures/gui/skin_swatches.png");
 
-    /** {@code color} — цвет одноцветного (0 — с рисунком); {@code labelX} — надпись модели (из 360 по ширине). */
-    public record Skin(String id, int color, int label, int labelX, int bezel, boolean dark) {
+    /**
+     * {@code color} — цвет одноцветного (0 — с рисунком); {@code labelX} — надпись модели (из 360 по ширине);
+     * {@code tex} — своя текстура (аддоны), иначе {@code textures/gui/skin/<id>.png}.
+     */
+    public record Skin(String id, int color, int label, int labelX, int bezel, boolean dark, ResourceLocation tex) {
+        Skin(String id, int color, int label, int labelX, int bezel, boolean dark) {
+            this(id, color, label, labelX, bezel, dark, new ResourceLocation(RpPda.MODID, "textures/gui/skin/" + id + ".png"));
+        }
+
         public boolean textured() {
             return color == 0;
         }
 
         public ResourceLocation texture() {
-            return new ResourceLocation(RpPda.MODID, "textures/gui/skin/" + id + ".png");
+            return tex;
         }
     }
 
@@ -55,6 +62,12 @@ public final class Skins {
 
     private static void add(String id, int color, int label, boolean dark) {
         ALL.put(id, new Skin(id, color, label, 12, BEZEL, dark));
+    }
+
+    /** Корпус аддона ({@link faygolover.rppda.api.PdaSkins#registerVisual}). */
+    public static void register(String id, @org.jetbrains.annotations.Nullable ResourceLocation texture, int color, int label, boolean dark) {
+        ResourceLocation tex = texture == null ? new ResourceLocation(RpPda.MODID, "textures/gui/skin/" + id + ".png") : texture;
+        ALL.put(id, new Skin(id, texture == null ? color : 0, label, 12, BEZEL, dark, tex));
     }
 
     public static Skin get(String id) {

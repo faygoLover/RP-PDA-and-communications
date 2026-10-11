@@ -83,6 +83,12 @@ public class PdaItem extends Item {
     public static void setLook(ItemStack stack, faygolover.rppda.data.Look look) {
         CompoundTag t = stack.getOrCreateTagElement(TAG);
         t.put("look", look.save());
+        t.putString("rs", resolvedStyle(look));
+    }
+
+    /** Вид для значка в инвентаре: свой у КПК или по умолчанию из конфига сервера. */
+    private static String resolvedStyle(faygolover.rppda.data.Look look) {
+        return look.style.isEmpty() ? faygolover.rppda.config.PdaConfig.style : look.style;
     }
 
     /** Корпус учётки поменялся — обновить копию в предмете (только если другая: каждое изменение уходит клиенту). */
@@ -90,18 +96,27 @@ public class PdaItem extends Item {
         CompoundTag t = stack.getTag();
         if (t == null) return;
         CompoundTag p = t.getCompound(TAG);
-        if (!p.getCompound("look").equals(look.save())) {
+        if (!p.getCompound("look").equals(look.save()) || !p.getString("rs").equals(resolvedStyle(look))) {
             p.put("look", look.save());
+            p.putString("rs", resolvedStyle(look));
             t.put(TAG, p);
         }
     }
 
-    /** Номер корпуса для модели предмета (0 — бежевый, как без записи). */
+    /**
+     * Модель предмета (свойство {@code rppda:skin}): ретро — номер корпуса / 100, современный — 0,5 + номер
+     * акцента / 100. Без записи — бежевый ретро.
+     */
     public static float skinIndex(ItemStack stack) {
         CompoundTag t = stack.getTag();
         if (t == null) return 0;
-        String body = t.getCompound(TAG).getCompound("look").getString("body");
-        int i = faygolover.rppda.data.Look.BODIES.indexOf(body);
+        CompoundTag p = t.getCompound(TAG);
+        CompoundTag l = p.getCompound("look");
+        if (p.getString("rs").equals("modern")) {
+            int a = faygolover.rppda.data.Look.ACCENTS.indexOf(l.getString("accent"));
+            return 0.5f + Math.max(0, a) / 100f;
+        }
+        int i = faygolover.rppda.data.Look.BODIES.indexOf(l.getString("body"));
         return i <= 0 ? 0 : i / 100f;
     }
 

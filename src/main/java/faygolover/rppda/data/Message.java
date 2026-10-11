@@ -13,6 +13,8 @@ public final class Message {
     public static final int NOTICE = 2;
     /** Действие ({@code /me}). */
     public static final int ACTION = 4;
+    /** Заметка, которой поделились: текст — заголовок, перевод строки, текст заметки. */
+    public static final int NOTE = 8;
 
     public final int seq;
     public final int sender;

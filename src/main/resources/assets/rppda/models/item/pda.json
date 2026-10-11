@@ -6,6 +6,12 @@
   "overrides": [
     {
       "predicate": {
+        "rppda:skin": 0.0
+      },
+      "model": "rppda:item/pda_beige"
+    },
+    {
+      "predicate": {
         "rppda:skin": 0.01
       },
       "model": "rppda:item/pda_graphite"
@@ -111,6 +117,36 @@
         "rppda:skin": 0.18
       },
       "model": "rppda:item/pda_disco"
+    },
+    {
+      "predicate": {
+        "rppda:skin": 0.5
+      },
+      "model": "rppda:item/pda_modern_blue"
+    },
+    {
+      "predicate": {
+        "rppda:skin": 0.51
+      },
+      "model": "rppda:item/pda_modern_green"
+    },
+    {
+      "predicate": {
+        "rppda:skin": 0.52
+      },
+      "model": "rppda:item/pda_modern_orange"
+    },
+    {
+      "predicate": {
+        "rppda:skin": 0.53
+      },
+      "model": "rppda:item/pda_modern_violet"
+    },
+    {
+      "predicate": {
+        "rppda:skin": 0.54
+      },
+      "model": "rppda:item/pda_modern_neon"
     }
   ]
 }

@@ -627,6 +627,20 @@ ICONS = {
         "....####....",
         "............",
     ],
+    "NOTE": [
+        ".#########..",
+        ".#.......#..",
+        ".#.#####.#..",
+        ".#.......#..",
+        ".#.#####.#..",
+        ".#.......#..",
+        ".#.###...#..",
+        ".#.....####.",
+        ".#.....#.#..",
+        ".#.....##...",
+        ".#######....",
+        "............",
+    ],
 }
 
 ORDER = ["CHATS", "CONTACTS", "PROFILE", "LOCK", "UNLOCK", "CLOSE", "BACK", "SEND",
@@ -634,7 +648,7 @@ ORDER = ["CHATS", "CONTACTS", "PROFILE", "LOCK", "UNLOCK", "CLOSE", "BACK", "SEN
          "KICK", "CROWN", "REPLY", "TRASH", "COPY", "KEY", "SILENT", "SOUND",
          "ACCOUNTS", "LOG", "SWITCH", "GIVE", "TELEPORT", "EDIT", "BLOCK", "CHECK",
          "SEARCH", "MESSAGE", "PDA", "REFRESH", "PERSON_ADD", "SYSTEM", "GLOBE", "EYE",
-         "BRUSH", "SIGNAL", "NO_SIGNAL", "MASK"]
+         "BRUSH", "SIGNAL", "NO_SIGNAL", "MASK", "NOTE"]
 
 
 def build():

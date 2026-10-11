@@ -105,9 +105,17 @@ public final class Ui {
         BODY_DARK = system ? 0xFF601C18 : 0xFF847A66; SYSTEM_BODY = BODY;
     }
 
-    /** Ретро пишет заглавными. */
+    /** Ретро пишет заглавными. Метки сервера («#deleted», «#note:») — в слова. */
     public static String up(String s) {
+        s = human(s);
         return retro ? s.toUpperCase(java.util.Locale.ROOT) : s;
+    }
+
+    /** Сервер шлёт метки без языка: удалённая учётка, заметка в превью чата. */
+    public static String human(String s) {
+        if (s.contains("#deleted")) s = s.replace("#deleted", Component.translatable("rppda.account.deleted").getString());
+        if (s.contains("#note:")) s = s.replace("#note:", Component.translatable("rppda.note.preview").getString());
+        return s;
     }
 
     /** Номер значка в атласе — тот же порядок, что в {@code scripts/gen_icons.py}. */
@@ -117,7 +125,7 @@ public final class Ui {
         KICK, CROWN, REPLY, TRASH, COPY, KEY, SILENT, SOUND,
         ACCOUNTS, LOG, SWITCH, GIVE, TELEPORT, EDIT, BLOCK, CHECK,
         SEARCH, MESSAGE, PDA, REFRESH, PERSON_ADD, SYSTEM, GLOBE, EYE,
-        BRUSH, SIGNAL, NO_SIGNAL, MASK
+        BRUSH, SIGNAL, NO_SIGNAL, MASK, NOTE
     }
 
     public static void icon(GuiGraphics g, Icon icon, int x, int y, int color) {

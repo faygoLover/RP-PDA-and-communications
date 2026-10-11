@@ -20,8 +20,8 @@ import java.util.UUID;
 public final class Account {
     public enum Kind { PLAYER, NPC, SYSTEM }
 
-    /** Как показывать сообщения чата: в КПК и в чате игры, только в КПК, без уведомлений. */
-    public enum Notify { CHAT, PDA, MUTED }
+    /** Уведомления по чату: звук и счётчик, без звука (только счётчик на HUD), без уведомлений. */
+    public enum Notify { SOUND, SILENT, NONE }
 
     public final int id;
     public final Kind kind;
@@ -47,6 +47,12 @@ public final class Account {
     /** До какого номера прочитан чат. */
     public final Map<Integer, Integer> lastRead = new HashMap<>();
     public final Map<Integer, Notify> notify = new HashMap<>();
+    /** Чаты, которые выводятся и в чат игры (по умолчанию — только КПК). */
+    public final Set<Integer> chatOut = new HashSet<>();
+    public final java.util.List<Note> notes = new java.util.ArrayList<>();
+    public int nextNote = 1;
+    /** Учётку удалил ГМ: КПК с ней не работает, данных нет. */
+    public boolean deleted;
     /** Приглашения в группы (ID чатов). */
     public final Set<Integer> invites = new HashSet<>();
 
@@ -61,7 +67,7 @@ public final class Account {
     }
 
     public Notify notify(int chat) {
-        return notify.getOrDefault(chat, Notify.CHAT);
+        return notify.getOrDefault(chat, Notify.SOUND);
     }
 
     public CompoundTag save() {
@@ -94,7 +100,13 @@ public final class Account {
         t.put("read", r);
         CompoundTag n = new CompoundTag();
         notify.forEach((k, v) -> n.putByte(Integer.toString(k), (byte) v.ordinal()));
-        t.put("notify", n);
+        t.put("ntf", n);
+        t.put("out", new IntArrayTag(chatOut.stream().mapToInt(Integer::intValue).toArray()));
+        ListTag nl = new ListTag();
+        for (Note note : notes) nl.add(note.save());
+        t.put("notes", nl);
+        t.putInt("nextNote", nextNote);
+        if (deleted) t.putBoolean("deleted", true);
         t.put("invites", new IntArrayTag(invites.stream().mapToInt(Integer::intValue).toArray()));
         return t;
     }
@@ -128,12 +140,16 @@ public final class Account {
         for (int b : t.getIntArray("blocked")) a.blocked.add(b);
         CompoundTag r = t.getCompound("read");
         for (String k : r.getAllKeys()) a.lastRead.put(Integer.parseInt(k), r.getInt(k));
-        CompoundTag n = t.getCompound("notify");
+        CompoundTag n = t.getCompound("ntf");
         Notify[] modes = Notify.values();
         for (String k : n.getAllKeys()) {
             int m = n.getByte(k);
             if (m >= 0 && m < modes.length) a.notify.put(Integer.parseInt(k), modes[m]);
         }
+        for (int i : t.getIntArray("out")) a.chatOut.add(i);
+        for (Tag e : t.getList("notes", Tag.TAG_COMPOUND)) a.notes.add(Note.load((CompoundTag) e));
+        a.nextNote = Math.max(1, t.getInt("nextNote"));
+        a.deleted = t.getBoolean("deleted");
         for (int i : t.getIntArray("invites")) a.invites.add(i);
         return a;
     }
