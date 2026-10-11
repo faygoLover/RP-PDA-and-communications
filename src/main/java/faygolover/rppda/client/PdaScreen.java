@@ -1169,7 +1169,7 @@ public class PdaScreen extends Screen {
     /** Заголовок пузыря: имя (у своих — пусто), у ГМа — пометка. */
     private String header(CompoundTag m, boolean own, boolean group) {
         String s = own ? "" : m.getString("n");
-        if (m.contains("g")) s = (s.isEmpty() ? "" : s + " ") + "[ГМ " + m.getString("g") + "]";
+        if (m.contains("g")) s = (s.isEmpty() ? "" : s + " ") + Component.translatable("rppda.chat.gm", m.getString("g")).getString();
         return s;
     }
 
