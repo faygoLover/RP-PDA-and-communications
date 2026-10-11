@@ -150,5 +150,15 @@
   "rppda.log.tp": "телепорт к",
   "rppda.log.npc": "создал NPC",
   "rppda.log.rename": "переименовал",
-  "curios.identifier.pda": "КПК"
+  "curios.identifier.pda": "КПК",
+  "rppda.body.player": "КПК «СИГНАЛ-85»",
+  "rppda.body.system": "СИСТЕМА-85",
+  "rppda.chat.you": "Вы",
+  "rppda.chat.deleted_mark": "[удалено]",
+  "rppda.btn.style_retro": "Вид: ретро (80-е)",
+  "rppda.btn.style_modern": "Вид: современный",
+  "rppda.btn.style_forced": "Вид КПК задан сервером",
+  "rppda.profile.style_retro": "Вид: ретро",
+  "rppda.profile.style_modern": "Вид: современный",
+  "rppda.profile.style_server": "(задан сервером)"
 }

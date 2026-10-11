@@ -34,6 +34,7 @@ public class RpPda {
         var modBus = FMLJavaModLoadingContext.get().getModEventBus();
         ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER, PdaConfig.SPEC);
         ModLoadingContext.get().registerConfig(ModConfig.Type.COMMON, PdaCommonConfig.SPEC);
+        ModLoadingContext.get().registerConfig(ModConfig.Type.CLIENT, faygolover.rppda.config.PdaClientConfig.SPEC);
         ModItems.register(modBus);
         modBus.addListener(this::commonSetup);
         modBus.addListener(this::onConfig);

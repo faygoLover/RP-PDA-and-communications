@@ -20,6 +20,7 @@ public final class PdaConfig {
     private static final ForgeConfigSpec.IntValue PASSWORD_ATTEMPTS;
     private static final ForgeConfigSpec.IntValue LOCKOUT_SECONDS;
     private static final ForgeConfigSpec.DoubleValue SOUND_VOLUME;
+    private static final ForgeConfigSpec.ConfigValue<String> STYLE;
 
     public static boolean hideWithoutPda = true;
     public static boolean forcePdaOnly = false;
@@ -33,6 +34,8 @@ public final class PdaConfig {
     public static int passwordAttempts = 5;
     public static int lockoutSeconds = 60;
     public static double soundVolume = 0.7;
+    /** Вид КПК для всех: "" — выбирает игрок, "modern" или "retro". */
+    public static String style = "";
 
     static {
         ForgeConfigSpec.Builder b = new ForgeConfigSpec.Builder();
@@ -51,6 +54,12 @@ public final class PdaConfig {
                 .defineInRange("pending_limit", 100, 0, 1000);
         SOUND_VOLUME = b.comment("Громкость звука уведомления (его слышат игроки рядом). 0 — без звука.")
                 .defineInRange("notify_volume", 0.7, 0.0, 4.0);
+        b.pop();
+        b.push("look");
+        STYLE = b.comment("Вид КПК у всех игроков: player — каждый выбирает сам (профиль КПК, rppda-client.toml),",
+                        "retro — 80-е (корпус с клавишами, люминофор), modern — современный.",
+                        "PDA look for everyone: player (each chooses), retro or modern.")
+                .define("pda_style", "player", v -> v instanceof String s && (s.equals("player") || s.equals("retro") || s.equals("modern")));
         b.pop();
         b.push("devices");
         CHECK_TICKS = b.comment("Как часто (тики) искать активный КПК игрока и проверять, не ушёл ли разблокированный КПК с паролем.")
@@ -80,5 +89,6 @@ public final class PdaConfig {
         passwordAttempts = PASSWORD_ATTEMPTS.get();
         lockoutSeconds = LOCKOUT_SECONDS.get();
         soundVolume = SOUND_VOLUME.get();
+        style = STYLE.get().equals("player") ? "" : STYLE.get();
     }
 }

@@ -150,5 +150,15 @@
   "rppda.log.tp": "teleported to",
   "rppda.log.npc": "created NPC",
   "rppda.log.rename": "renamed",
-  "curios.identifier.pda": "PDA"
+  "curios.identifier.pda": "PDA",
+  "rppda.body.player": "PDA \"SIGNAL-85\"",
+  "rppda.body.system": "SYSTEM-85",
+  "rppda.chat.you": "You",
+  "rppda.chat.deleted_mark": "[deleted]",
+  "rppda.btn.style_retro": "Look: retro (80s)",
+  "rppda.btn.style_modern": "Look: modern",
+  "rppda.btn.style_forced": "The server sets the PDA look",
+  "rppda.profile.style_retro": "Look: retro",
+  "rppda.profile.style_modern": "Look: modern",
+  "rppda.profile.style_server": "(set by the server)"
 }

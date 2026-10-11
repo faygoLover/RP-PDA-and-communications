@@ -40,6 +40,7 @@ public final class Views {
         t.putBoolean("silent", a.silent);
         t.putBoolean("pw", a.hasPassword());
         t.putInt("maxLen", faygolover.rppda.config.PdaConfig.maxLength);
+        t.putString("style", faygolover.rppda.config.PdaConfig.style);
 
         List<Chat> list = new ArrayList<>();
         list.add(store.global());

@@ -136,8 +136,14 @@ final class DevShots {
             h.put("msgs", ms);
             screen.receive("history", h);
         }, "pda_chat"});
-        steps.add(new Object[]{(Runnable) () -> screen.setPage(PdaScreen.Page.CONTACTS), "pda_contacts"});
-        steps.add(new Object[]{(Runnable) () -> screen.setPage(PdaScreen.Page.PROFILE), "pda_profile"});
+        steps.add(new Object[]{(Runnable) () -> {
+            screen.setPage(PdaScreen.Page.CONTACTS);
+            screen.holdKeyForShot(1);
+        }, "pda_contacts"});
+        steps.add(new Object[]{(Runnable) () -> {
+            screen.holdKeyForShot(-1);
+            screen.setPage(PdaScreen.Page.PROFILE);
+        }, "pda_profile"});
         steps.add(new Object[]{(Runnable) () -> {
             screen.receive("state", state(true));
             screen.setPage(PdaScreen.Page.SYS_ACCOUNTS);

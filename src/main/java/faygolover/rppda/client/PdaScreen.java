@@ -4,7 +4,11 @@ import com.mojang.blaze3d.platform.InputConstants;
 import faygolover.rppda.client.Ui.Icon;
 import faygolover.rppda.client.Ui.IconButton;
 import net.minecraft.ChatFormatting;
+import faygolover.rppda.config.PdaClientConfig;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.resources.sounds.SimpleSoundInstance;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.sounds.SoundEvents;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
@@ -32,6 +36,16 @@ public class PdaScreen extends Screen {
     enum Prompt { NONE, NEW_DM, NEW_GROUP, NEW_CHANNEL, ADD_CONTACT, EDIT_LABEL, SET_PW, REMOVE_PW, RENAME_GROUP, INVITE, NPC, NPC_RENAME }
 
     private Page page = Page.WAIT;
+
+    /** Ретро-вид (80-е): решает сервер ({@code pda_style}) или игрок ({@code rppda-client.toml}). */
+    private boolean retro;
+    private boolean themedSystem;
+    /** Вид, заданный сервером: "" — выбирает игрок, иначе "modern"/"retro". */
+    private String forcedStyle = "";
+    /** Нажатая клавиша корпуса (−1 — нет) и чем: мышью держат, пока не отпустят. */
+    private int heldKey = -1;
+    private boolean heldByMouse;
+    private static final ResourceLocation VIGNETTE = new ResourceLocation(faygolover.rppda.RpPda.MODID, "textures/gui/crt_vignette.png");
     private Page chatReturn = Page.CHATS;
 
     // Геометрия: корпус, экран, содержимое.
@@ -111,6 +125,27 @@ public class PdaScreen extends Screen {
 
     @Override
     protected void init() {
+        retro = styleRetro();
+        themedSystem = system;
+        Ui.theme(retro, system);
+        if (retro) {
+            // Корпус: полоса с названием сверху, экран, внизу клавиши.
+            w = Math.min(360, width - 8);
+            h = Math.min(254, height - 8);
+            x0 = (width - w) / 2;
+            y0 = (height - h) / 2;
+            sx = x0 + 12;
+            sy = y0 + 18;
+            sw = w - 24;
+            sh = h - 18 - 48;
+            cx = sx + 4;
+            cy = sy + 13;
+            cw = sw - 8;
+            ch = sh - 15;
+            blocksWidth = -1;
+            rebuild();
+            return;
+        }
         w = Math.min(360, width - 8);
         h = Math.min(236, height - 8);
         x0 = (width - w) / 2;
@@ -127,19 +162,48 @@ public class PdaScreen extends Screen {
         rebuild();
     }
 
+    private boolean styleRetro() {
+        if (forcedStyle.equals("retro")) return true;
+        if (forcedStyle.equals("modern")) return false;
+        return PdaClientConfig.retro();
+    }
+
+    /** Вид или корпус (обычный/системный) поменялся — пересобрать окно. */
+    private boolean refreshTheme() {
+        if (styleRetro() == retro && system == themedSystem) return false;
+        rebuildWidgets();
+        return true;
+    }
+
+    @Override
+    public void removed() {
+        Ui.theme(false, false);
+        super.removed();
+    }
+
     // ================================================================ приём
 
     void receive(String op, CompoundTag d) {
         switch (op) {
-            case "register" -> setPage(Page.REGISTER);
+            case "register" -> {
+                forcedStyle = d.getString("style");
+                system = false;
+                refreshTheme();
+                setPage(Page.REGISTER);
+            }
             case "locked" -> {
+                forcedStyle = d.getString("style");
+                system = false;
+                refreshTheme();
                 lockedName = d.getString("name");
                 lockedId = d.getInt("id");
                 waitUntil = System.currentTimeMillis() + d.getLong("wait");
                 setPage(Page.LOCKED);
             }
             case "state" -> {
+                forcedStyle = d.getString("style");
                 readState(d);
+                refreshTheme();
                 if (page == Page.WAIT || page == Page.REGISTER || page == Page.LOCKED) setPage(Page.CHATS);
                 else rebuild();
             }
@@ -315,7 +379,8 @@ public class PdaScreen extends Screen {
             password = new EditBox(font, sx + sw / 2 - 60, sy + sh / 2 + 8, 100, 16, Component.translatable("rppda.hint.password"));
             password.setMaxLength(32);
             mask(password);
-            password.setHint(Component.translatable("rppda.hint.password").withStyle(ChatFormatting.DARK_GRAY));
+            box(password);
+            password.setHint(hint("rppda.hint.password"));
             addRenderableWidget(password);
             setInitialFocus(password);
             addRenderableWidget(new IconButton(sx + sw / 2 + 44, sy + sh / 2 + 7, Icon.UNLOCK,
@@ -335,8 +400,9 @@ public class PdaScreen extends Screen {
             case PROFILE -> profileWidgets();
             case SYS_ACCOUNTS -> {
                 search = new EditBox(font, cx + 2, cy + 2, cw - 46, 14, Component.translatable("rppda.hint.search"));
-                search.setHint(Component.translatable("rppda.hint.search").withStyle(ChatFormatting.DARK_GRAY));
+                search.setHint(hint("rppda.hint.search"));
                 search.setValue(sysQuery);
+                box(search);
                 search.setResponder(s -> {
                     sysQuery = s;
                     send("sys.accounts", t -> t.putString("q", s));
@@ -354,6 +420,7 @@ public class PdaScreen extends Screen {
     }
 
     private void rail() {
+        if (retro) return;
         int y = cy;
         y = railButton(y, Icon.CHATS, "rppda.page.chats", Page.CHATS);
         y = railButton(y, Icon.CONTACTS, "rppda.page.contacts", Page.CONTACTS);
@@ -432,9 +499,11 @@ public class PdaScreen extends Screen {
         }
         if (chatRow.getBoolean("write")) {
             int iy = cy + ch - 16;
-            input = new EditBox(font, cx + 2, iy, cw - 24, 15, Component.translatable("rppda.hint.message"));
+            input = retro ? new EditBox(font, cx + 12, iy + 4, cw - 34, 10, Component.translatable("rppda.hint.message"))
+                    : new EditBox(font, cx + 2, iy, cw - 24, 15, Component.translatable("rppda.hint.message"));
+            box(input);
             input.setMaxLength(maxLen);
-            input.setHint(Component.translatable("rppda.hint.message").withStyle(ChatFormatting.DARK_GRAY));
+            input.setHint(hint("rppda.hint.message"));
             input.setValue(inputDraft);
             addRenderableWidget(input);
             setInitialFocus(input);
@@ -463,8 +532,8 @@ public class PdaScreen extends Screen {
     }
 
     private void profileWidgets() {
-        int bx = cx + 6, by = cy + 64;
-        addRenderableWidget(new IconButton(cx + 44 + font.width(Ui.formatId(meId)) + 30, cy + 26, 14, 14, Icon.COPY,
+        int bx = cx + 6, by = cy + (retro ? 54 : 64), st = retro ? 22 : 26;
+        addRenderableWidget(new IconButton(cx + 44 + tw(Ui.formatId(meId)) + 30, cy + 26, 14, 14, Icon.COPY,
                 Component.translatable("rppda.btn.copy_id"), null, b -> {
             Minecraft.getInstance().keyboardHandler.setClipboard(String.format("%08d", meId));
             showToast(Component.translatable("rppda.toast.copied"), false);
@@ -477,7 +546,15 @@ public class PdaScreen extends Screen {
             addRenderableWidget(new IconButton(bx + 40, by, Icon.LOCK, Component.translatable("rppda.btn.lock"),
                     b -> ClientPda.send("lock", new CompoundTag())));
         }
-        IconButton snd = new IconButton(bx, by + 26, silent ? Icon.SILENT : Icon.SOUND,
+        boolean forced = !forcedStyle.isEmpty();
+        IconButton style = new IconButton(bx, by + 2 * st, Icon.EYE, Component.translatable(forced ? "rppda.btn.style_forced"
+                : retro ? "rppda.btn.style_modern" : "rppda.btn.style_retro"), b -> {
+            PdaClientConfig.setRetro(!retro);
+            rebuildWidgets();
+        });
+        style.active = !forced;
+        addRenderableWidget(style);
+        IconButton snd = new IconButton(bx, by + st, silent ? Icon.SILENT : Icon.SOUND,
                 Component.translatable(silent ? "rppda.btn.sound_on" : "rppda.btn.sound_off"),
                 b -> send("profile.silent", t -> t.putBoolean("on", !silent)));
         addRenderableWidget(snd);
@@ -522,9 +599,10 @@ public class PdaScreen extends Screen {
         boolean two = prompt == Prompt.ADD_CONTACT && promptTarget == 0 || prompt == Prompt.SET_PW && hasPw;
         int boxW = two ? (cw - 52) / 2 : cw - 48;
         promptA = new EditBox(font, cx + 4, y + 2, boxW, 14, Component.empty());
-        promptA.setHint(Component.translatable(hintA()).withStyle(ChatFormatting.DARK_GRAY));
+        promptA.setHint(hint(hintA()));
         promptA.setMaxLength(prompt == Prompt.NEW_DM || prompt == Prompt.INVITE || prompt == Prompt.ADD_CONTACT && promptTarget == 0 ? 9 : 32);
         if (prompt == Prompt.SET_PW || prompt == Prompt.REMOVE_PW) mask(promptA);
+        box(promptA);
         if (prompt == Prompt.EDIT_LABEL) for (CompoundTag c : contacts) if (c.getInt("id") == promptTarget) promptA.setValue(c.getString("label"));
         if (prompt == Prompt.RENAME_GROUP && chatRow != null) promptA.setValue(chatRow.getString("title"));
         addRenderableWidget(promptA);
@@ -532,10 +610,11 @@ public class PdaScreen extends Screen {
         setFocused(promptA);
         if (two) {
             promptB = new EditBox(font, cx + 8 + boxW, y + 2, boxW, 14, Component.empty());
-            promptB.setHint(Component.translatable(prompt == Prompt.SET_PW ? "rppda.hint.new_password" : "rppda.hint.label")
-                    .withStyle(ChatFormatting.DARK_GRAY));
+            promptB.setHint(hint(prompt == Prompt.SET_PW ? "rppda.hint.new_password" : "rppda.hint.label")
+                    );
             promptB.setMaxLength(32);
             if (prompt == Prompt.SET_PW) mask(promptB);
+            box(promptB);
             addRenderableWidget(promptB);
         }
         addRenderableWidget(new IconButton(cx + cw - 40, y, Icon.CHECK, Component.translatable("rppda.btn.ok"), b -> confirmPrompt()));
@@ -720,6 +799,12 @@ public class PdaScreen extends Screen {
     }
 
     @Override
+    public boolean keyReleased(int key, int scan, int mods) {
+        if (heldKey >= 0 && !heldByMouse && key == GLFW.GLFW_KEY_F3 + heldKey) heldKey = -1;
+        return super.keyReleased(key, scan, mods);
+    }
+
+    @Override
     public void onClose() {
         ClientPda.send("close", new CompoundTag());
         super.onClose();
@@ -727,6 +812,15 @@ public class PdaScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mx, double my, int button) {
+        if (retro && button == 0) {
+            List<Key> ks = keys();
+            for (int i = 0; i < ks.size(); i++) {
+                if (mx >= keyX(i, ks.size()) && mx < keyX(i, ks.size()) + keyW(ks.size()) && my >= keyY() && my < keyY() + KEY_H + 2) {
+                    pressKey(i, true);
+                    return true;
+                }
+            }
+        }
         if (super.mouseClicked(mx, my, button)) return true;
         if (button != 0) return false;
         for (Hot hot : new ArrayList<>(hots)) {
@@ -736,6 +830,15 @@ public class PdaScreen extends Screen {
             }
         }
         return false;
+    }
+
+    @Override
+    public boolean mouseReleased(double mx, double my, int button) {
+        if (heldByMouse && button == 0) {
+            heldKey = -1;
+            heldByMouse = false;
+        }
+        return super.mouseReleased(mx, my, button);
     }
 
     @Override
@@ -755,6 +858,8 @@ public class PdaScreen extends Screen {
         renderBackground(g);
         hots.clear();
         boolean sys = system;
+        if (retro) retroBody(g, mx, my);
+        else {
         // Корпус.
         g.fill(x0 - 1, y0 - 1, x0 + w + 1, y0 + h + 1, Ui.BODY_DARK);
         g.fill(x0, y0, x0 + w, y0 + h, sys ? Ui.SYSTEM_BODY : Ui.BODY);
@@ -763,6 +868,7 @@ public class PdaScreen extends Screen {
         g.fill(sx - 1, sy - 1, sx + sw + 1, sy + sh + 1, 0xFF000000);
         g.fill(sx, sy, sx + sw, sy + sh, Ui.SCREEN);
         g.fill(x0 + w / 2 - 12, y0 + h - 5, x0 + w / 2 + 12, y0 + h - 3, sys ? 0xFF7A2A2A : 0xFF2C5C88);
+        }
 
         if (page == Page.WAIT) {
             drawCentered(g, Component.translatable("rppda.screen.loading"), sy + sh / 2 - 4, Ui.DIM);
@@ -778,7 +884,7 @@ public class PdaScreen extends Screen {
             if (wait > 0) drawCentered(g, Component.translatable("rppda.err.wait", (wait + 999) / 1000), sy + sh / 2 + 30, Ui.RED);
         } else {
             statusBar(g);
-            g.fill(sx + 22, sy + 12, sx + 23, sy + sh, 0xFF1E2833);
+            if (!retro) g.fill(sx + 22, sy + 12, sx + 23, sy + sh, Ui.SEP);
             switch (page) {
                 case CHATS -> renderChats(g, mx, my);
                 case CHAT -> renderChat(g, mx, my);
@@ -793,17 +899,28 @@ public class PdaScreen extends Screen {
             }
             if (prompt != Prompt.NONE) g.fill(cx, cy + 19, cx + cw, cy + 39, Ui.PANEL);
         }
+        if (retro) for (EditBox b : framedBoxes()) g.renderOutline(b.getX() - 3, b.getY() - 3, b.getWidth() + 6, b.getHeight() + 5, Ui.DIM);
         super.render(g, mx, my, pt);
-        if (toast != null && System.currentTimeMillis() < toastUntil) {
-            int tw = font.width(toast) + 10;
+        if (retro && toast != null && System.currentTimeMillis() < toastUntil) {
+            String t = Ui.up(toast.getString());
+            int tw = font.width(t) + 6;
+            int tx = sx + sw / 2 - tw / 2, ty = sy + sh - 14;
+            g.pose().pushPose();
+            g.pose().translate(0, 0, 250);
+            g.fill(tx, ty, tx + tw, ty + 11, Ui.TOAST_BG);
+            g.drawString(font, t, tx + 3, ty + 2, Ui.SCREEN, false);
+            g.pose().popPose();
+        } else if (toast != null && System.currentTimeMillis() < toastUntil) {
+            int tw = tw(toast) + 10;
             int tx = sx + sw / 2 - tw / 2, ty = sy + sh - 34;
             g.pose().pushPose();
             g.pose().translate(0, 0, 400);
-            g.fill(tx, ty, tx + tw, ty + 14, 0xEE10161D);
+            g.fill(tx, ty, tx + tw, ty + 14, Ui.TOAST_BG);
             g.fill(tx, ty + 13, tx + tw, ty + 14, toastColor);
-            g.drawString(font, toast, tx + 5, ty + 3, Ui.TEXT, false);
+            txt(g, toast, tx + 5, ty + 3, Ui.TEXT, false);
             g.pose().popPose();
         }
+        if (retro) crt(g);
         hoverTooltip(g, mx, my);
     }
 
@@ -824,31 +941,43 @@ public class PdaScreen extends Screen {
     }
 
     private void drawCentered(GuiGraphics g, Component c, int y, int color) {
-        g.drawString(font, c, sx + sw / 2 - font.width(c) / 2, y, color, false);
+        txt(g, c, sx + sw / 2 - tw(c) / 2, y, color, false);
     }
 
     private void statusBar(GuiGraphics g) {
-        g.fill(sx, sy, sx + sw, sy + 12, 0xFF0A1018);
+        if (retro) {
+            // Инверсная строка, как на терминале.
+            g.fill(sx, sy, sx + sw, sy + 11, Ui.BAR);
+            String clock = Ui.clock(System.currentTimeMillis());
+            g.drawString(font, clock, sx + sw - font.width(clock) - 3, sy + 2, Ui.SCREEN, false);
+            String left = system ? Ui.up(Component.translatable("rppda.screen.system").getString())
+                    + (meId != 0 ? "  → " + Ui.up(meName) + " " + Ui.formatId(meId) : "")
+                    : Ui.up(meName) + "  ID " + Ui.formatId(meId);
+            g.drawString(font, Ui.fit(font, left, sw - 50), sx + 3, sy + 2, Ui.SCREEN, false);
+            if (silent && !system) Ui.icon(g, Icon.SILENT, sx + sw - font.width(clock) - 16, sy - 1, 12, Ui.SCREEN);
+            return;
+        }
+        g.fill(sx, sy, sx + sw, sy + 12, Ui.BAR);
         String clock = Ui.clock(System.currentTimeMillis());
-        g.drawString(font, clock, sx + sw - font.width(clock) - 4, sy + 2, Ui.DIM, false);
+        txt(g, clock, sx + sw - tw(clock) - 4, sy + 2, Ui.DIM, false);
         int x = sx + 4;
         if (system) {
             Component s = Component.translatable("rppda.screen.system");
-            g.drawString(font, s, x, sy + 2, Ui.RED, false);
-            x += font.width(s) + 6;
+            txt(g, s, x, sy + 2, Ui.RED, false);
+            x += tw(s) + 6;
             if (meId != 0) {
                 String who = "→ " + meName + "  " + Ui.formatId(meId);
-                g.drawString(font, who, x, sy + 2, Ui.GOLD, false);
+                txt(g, who, x, sy + 2, Ui.GOLD, false);
             }
         } else {
-            g.drawString(font, meName, x, sy + 2, Ui.TEXT, false);
-            g.drawString(font, "ID " + Ui.formatId(meId), x + font.width(meName) + 6, sy + 2, Ui.DIM, false);
+            txt(g, meName, x, sy + 2, Ui.TEXT, false);
+            txt(g, "ID " + Ui.formatId(meId), x + tw(meName) + 6, sy + 2, Ui.DIM, false);
         }
-        if (silent && !system) Ui.icon(g, Icon.SILENT, sx + sw - font.width(clock) - 16, sy + 2, 9, Ui.DIM);
+        if (silent && !system) Ui.icon(g, Icon.SILENT, sx + sw - tw(clock) - 16, sy + 2, 9, Ui.DIM);
     }
 
     private void title(GuiGraphics g, Component c, int xOff) {
-        g.drawString(font, c, cx + xOff, cy + 5, Ui.TEXT, false);
+        txt(g, c, cx + xOff, cy + 5, Ui.TEXT, false);
     }
 
     private int listTop() {
@@ -867,7 +996,10 @@ public class PdaScreen extends Screen {
             if (y + rowH < top || y > bottom) continue;
             T it = items.get(i);
             boolean hover = mx >= cx && mx < cx + cw && my >= Math.max(top, y) && my < Math.min(bottom, y + rowH);
-            if (hover) g.fill(cx, y, cx + cw, y + rowH, Ui.ROW_HOVER);
+            if (hover) {
+                if (retro) g.renderOutline(cx, y, cw, rowH, Ui.TEXT);
+                else g.fill(cx, y, cx + cw, y + rowH, Ui.ROW_HOVER);
+            }
             draw.draw(g, it, y, hover);
             if (click != null && hover) {
                 int yy = y;
@@ -876,7 +1008,7 @@ public class PdaScreen extends Screen {
             }
         }
         g.disableScissor();
-        if (items.isEmpty()) g.drawString(font, Component.translatable("rppda.screen.empty"), cx + 6, top + 6, Ui.DIM, false);
+        if (items.isEmpty()) txt(g, Component.translatable("rppda.screen.empty"), cx + 6, top + 6, Ui.DIM, false);
     }
 
     private interface RowDraw<T> {
@@ -915,10 +1047,10 @@ public class PdaScreen extends Screen {
 
     private void drawInvite(GuiGraphics g, CompoundTag r, int y, boolean hover) {
         g.fill(cx, y, cx + 2, y + 24, Ui.GOLD);
-        g.fill(cx + 4, y + 4, cx + 20, y + 20, 0xFF5A4A1E);
+        g.fill(cx + 4, y + 4, cx + 20, y + 20, Ui.TILE_INVITE);
         Ui.icon(g, r.getBoolean("channel") ? Icon.CHANNEL : Icon.GROUP, cx + 6, y + 6, 12, Ui.GOLD);
-        g.drawString(font, Ui.fit(font, r.getString("title"), cw - 80), cx + 24, y + 3, Ui.TEXT, false);
-        g.drawString(font, Ui.fit(font, Component.translatable("rppda.screen.invite_from", r.getString("from")).getString(), cw - 80),
+        txt(g, fit(r.getString("title"), cw - 80), cx + 24, y + 3, Ui.TEXT, false);
+        txt(g, fit(Component.translatable("rppda.screen.invite_from", r.getString("from")).getString(), cw - 80),
                 cx + 24, y + 13, Ui.GOLD, false);
         int chat = r.getInt("chat");
         rowIcon(g, cx + cw - 34, y + 6, Icon.CHECK, "rppda.btn.accept", "acc" + chat, Ui.GREEN,
@@ -931,19 +1063,19 @@ public class PdaScreen extends Screen {
         String type = r.getString("type");
         switch (type) {
             case "GLOBAL" -> {
-                g.fill(x, y, x + size, y + size, 0xFF24557F);
-                Ui.icon(g, Icon.GLOBE, x + 1, y + 1, size - 2, 0xFFFFFFFF);
+                g.fill(x, y, x + size, y + size, Ui.TILE_GLOBE);
+                Ui.icon(g, Icon.GLOBE, x + 1, y + 1, size - 2, onTile());
             }
             case "GROUP", "CHANNEL" -> {
-                g.fill(x, y, x + size, y + size, 0xFF3C4A5C);
-                Ui.icon(g, type.equals("GROUP") ? Icon.GROUP : Icon.CHANNEL, x + 1, y + 1, size - 2, 0xFFFFFFFF);
+                g.fill(x, y, x + size, y + size, Ui.TILE_GROUP);
+                Ui.icon(g, type.equals("GROUP") ? Icon.GROUP : Icon.CHANNEL, x + 1, y + 1, size - 2, onTile());
             }
             default -> {
                 if (r.contains("peer"))
                     Ui.avatar(g, x, y, size, r.hasUUID("owner") ? r.getUUID("owner") : null, r.getString("title"), r.getInt("peer"));
                 else {
-                    g.fill(x, y, x + size, y + size, 0xFF3C3C46);
-                    Ui.icon(g, Icon.MESSAGE, x + 1, y + 1, size - 2, 0xFFFFFFFF);
+                    g.fill(x, y, x + size, y + size, Ui.TILE_GROUP);
+                    Ui.icon(g, Icon.MESSAGE, x + 1, y + 1, size - 2, onTile());
                 }
             }
         }
@@ -957,9 +1089,9 @@ public class PdaScreen extends Screen {
         chatAvatar(g, r, cx + 4, y + 4, 16);
         int unread = r.getInt("unread");
         String time = Ui.time(r.getLong("time"));
-        int tw = font.width(time);
-        g.drawString(font, Ui.fit(font, chatTitle(r).getString(), cw - 34 - tw), cx + 24, y + 3, unread > 0 ? 0xFFFFFFFF : Ui.TEXT, false);
-        g.drawString(font, time, cx + cw - tw - 4, y + 3, Ui.DIM, false);
+        int tw = tw(time);
+        txt(g, fit(chatTitle(r).getString(), cw - 34 - tw), cx + 24, y + 3, unread > 0 ? onTile() : Ui.TEXT, false);
+        txt(g, time, cx + cw - tw - 4, y + 3, Ui.DIM, false);
         String last = r.getString("last");
         String from = r.getString("lastFrom");
         String preview = last.isEmpty() ? (r.getLong("time") > 0 ? "…" : "") : (from.isEmpty() ? last : from + ": " + last);
@@ -971,12 +1103,12 @@ public class PdaScreen extends Screen {
         }
         if (unread > 0) {
             String n = unread > 99 ? "99+" : Integer.toString(unread);
-            int bw = font.width(n) + 6;
-            g.fill(cx + cw - right - bw + 2, y + 12, cx + cw - right + 2, y + 22, mode.equals("MUTED") ? 0xFF55606B : Ui.ACCENT);
-            g.drawString(font, n, cx + cw - right - bw + 5, y + 13, 0xFFFFFFFF, false);
+            int bw = tw(n) + 6;
+            g.fill(cx + cw - right - bw + 2, y + 12, cx + cw - right + 2, y + 22, mode.equals("MUTED") ? Ui.DIM : Ui.ACCENT);
+            g.drawString(font, n, cx + cw - right - bw + 5, y + 13, retro ? Ui.SCREEN : 0xFFFFFFFF, false);
             right += bw + 2;
         }
-        g.drawString(font, Ui.fit(font, preview, cw - 28 - right), cx + 24, y + 13, Ui.DIM, false);
+        txt(g, fit(preview, cw - 28 - right), cx + 24, y + 13, Ui.DIM, false);
     }
 
     // ---------------------------------------------------------------- открытый чат
@@ -992,6 +1124,10 @@ public class PdaScreen extends Screen {
         if (blocksVersion == msgsVersion && blocksWidth == cw) return;
         blocksVersion = msgsVersion;
         blocksWidth = cw;
+        if (retro) {
+            layoutRetro();
+            return;
+        }
         List<Block> out = new ArrayList<>();
         String lastDay = "";
         boolean group = chatRow != null && !chatRow.getString("type").equals("DM");
@@ -1020,10 +1156,10 @@ public class PdaScreen extends Screen {
                 quote = List.of(Language.fit(font, q, inner - 6));
             }
             int textW = 0;
-            for (FormattedCharSequence l : lines) textW = Math.max(textW, font.width(l));
+            for (FormattedCharSequence l : lines) textW = Math.max(textW, tw(l));
             String header = header(m, own, group);
-            int headW = font.width(header) + 8 + font.width(Ui.clock(m.getLong("t")));
-            int bw = Math.min(maxBubble(), Math.max(Math.max(textW, headW), quote == null ? 0 : Math.min(inner, font.width(quote.get(0)) + 6)) + 10);
+            int headW = tw(header) + 8 + tw(Ui.clock(m.getLong("t")));
+            int bw = Math.min(maxBubble(), Math.max(Math.max(textW, headW), quote == null ? 0 : Math.min(inner, tw(quote.get(0)) + 6)) + 10);
             int hgt = 4 + 9 + (quote != null ? 11 : 0) + lines.size() * 9 + 3;
             out.add(new Block(m, lines, hgt + 3 + (date != null ? 14 : 0), own, false, date, bw, quote));
         }
@@ -1056,7 +1192,7 @@ public class PdaScreen extends Screen {
         // Шапка.
         chatAvatar(g, chatRow, cx + 22, cy + 1, 16);
         int toolW = 19 * 3;
-        g.drawString(font, Ui.fit(font, chatTitle(chatRow).getString(), cw - 44 - toolW), cx + 42, cy + 1, Ui.TEXT, false);
+        txt(g, fit(chatTitle(chatRow).getString(), cw - 44 - toolW), cx + 42, cy + 1, Ui.TEXT, false);
         String type = chatRow.getString("type");
         Component sub = switch (type) {
             case "GROUP" -> Component.translatable("rppda.chat.members_n", chatRow.getInt("count"));
@@ -1064,15 +1200,15 @@ public class PdaScreen extends Screen {
             case "GLOBAL" -> Component.translatable("rppda.chat.global_sub");
             default -> chatRow.contains("peer") ? Component.literal("ID " + Ui.formatId(chatRow.getInt("peer"))) : Component.empty();
         };
-        g.drawString(font, sub, cx + 42, cy + 10, Ui.DIM, false);
-        g.fill(cx, cy + 19, cx + cw, cy + 20, 0xFF1E2833);
+        txt(g, sub, cx + 42, cy + 10, Ui.DIM, false);
+        g.fill(cx, cy + 19, cx + cw, cy + 20, Ui.SEP);
 
         boolean canWrite = chatRow.getBoolean("write");
         int top = cy + 21;
         int bottom = cy + ch - (canWrite ? 19 : 12) - (replySeq > 0 ? 14 : 0);
         if (!canWrite) {
             Component ro = Component.translatable(chatRow.getBoolean("member") ? "rppda.chat.read_only_channel" : "rppda.chat.read_only");
-            g.drawString(font, ro, cx + cw / 2 - font.width(ro) / 2, cy + ch - 10, Ui.DIM, false);
+            txt(g, ro, cx + cw / 2 - tw(ro) / 2, cy + ch - 10, Ui.DIM, false);
         }
         layout();
         int total = 0;
@@ -1091,24 +1227,28 @@ public class PdaScreen extends Screen {
         int y = bottom - total + (int) scroll;
         if (loading) {
             Component l = Component.translatable("rppda.screen.loading");
-            g.drawString(font, l, cx + cw / 2 - font.width(l) / 2, Math.max(top + 2, y - 12), Ui.DIM, false);
+            txt(g, l, cx + cw / 2 - tw(l) / 2, Math.max(top + 2, y - 12), Ui.DIM, false);
         }
         boolean group = !type.equals("DM");
         for (Block b : blocks) {
             int by = y;
             y += b.height;
             if (y < top || by > bottom) continue;
+            if (retro) {
+                retroBlock(g, b, by, mx, my, top, bottom, canWrite);
+                continue;
+            }
             if (b.date != null) {
                 String d = b.date;
-                int dw = font.width(d) + 8;
-                g.fill(cx + cw / 2 - dw / 2, by + 1, cx + cw / 2 + dw / 2, by + 11, 0xFF1A2430);
-                g.drawString(font, d, cx + cw / 2 - dw / 2 + 4, by + 2, Ui.DIM, false);
+                int dw = tw(d) + 8;
+                g.fill(cx + cw / 2 - dw / 2, by + 1, cx + cw / 2 + dw / 2, by + 11, Ui.DATE_BG);
+                txt(g, d, cx + cw / 2 - dw / 2 + 4, by + 2, Ui.DIM, false);
                 by += 14;
             }
             if (b.notice) {
                 int ly = by + 2;
                 for (FormattedCharSequence l : b.lines) {
-                    g.drawString(font, l, cx + cw / 2 - font.width(l) / 2, ly, Ui.DIM, false);
+                    txt(g, l, cx + cw / 2 - tw(l) / 2, ly, Ui.DIM, false);
                     ly += 9;
                 }
                 continue;
@@ -1121,18 +1261,18 @@ public class PdaScreen extends Screen {
             g.fill(bx, by, bx + bw, by + bh, b.own ? Ui.OWN : Ui.OTHER);
             if (deleted) g.fill(bx, by, bx + 2, by + bh, Ui.RED);
             String head = header(m, b.own, group);
-            if (!head.isEmpty()) g.drawString(font, Ui.fit(font, head, bw - 40), bx + 5, by + 3,
+            if (!head.isEmpty()) txt(g, fit(head, bw - 40), bx + 5, by + 3,
                     m.contains("g") ? Ui.GOLD : Ui.ACCENT, false);
             String clock = Ui.clock(m.getLong("t"));
-            g.drawString(font, clock, bx + bw - font.width(clock) - 4, by + 3, 0xFF7F93A8, false);
+            txt(g, clock, bx + bw - tw(clock) - 4, by + 3, Ui.TIME, false);
             int ty = by + 13;
             if (b.quote != null) {
                 g.fill(bx + 5, ty, bx + 6, ty + 9, Ui.ACCENT);
-                g.drawString(font, b.quote.get(0), bx + 9, ty + 1, 0xFF9FB3C8, false);
+                txt(g, b.quote.get(0), bx + 9, ty + 1, Ui.QUOTE, false);
                 ty += 11;
             }
             for (FormattedCharSequence l : b.lines) {
-                g.drawString(font, l, bx + 5, ty, deleted ? Ui.DIM : Ui.TEXT, false);
+                txt(g, l, bx + 5, ty, deleted ? Ui.DIM : Ui.TEXT, false);
                 ty += 9;
             }
             boolean hover = mx >= bx && mx < bx + bw && my >= by && my < by + bh && my >= top && my < bottom;
@@ -1160,17 +1300,23 @@ public class PdaScreen extends Screen {
             }
         }
         g.disableScissor();
+        if (retro && canWrite) {
+            int iy = cy + ch - 16;
+            for (int x = cx; x < cx + cw; x += 2) g.fill(x, iy - 1, x + 1, iy, Ui.DIM);
+            txt(g, ">", cx + 3, iy + 5, Ui.TEXT, false);
+        }
         if (replySeq > 0 && canWrite) {
             int ry = cy + ch - 32;
             g.fill(cx, ry, cx + cw, ry + 13, Ui.PANEL);
             g.fill(cx, ry, cx + 2, ry + 13, Ui.ACCENT);
             Ui.icon(g, Icon.REPLY, cx + 4, ry + 1, 11, Ui.ACCENT);
-            g.drawString(font, Ui.fit(font, replyName + ": " + replyText, cw - 36), cx + 18, ry + 3, Ui.DIM, false);
+            txt(g, fit(replyName + ": " + replyText, cw - 36), cx + 18, ry + 3, Ui.DIM, false);
         }
         if (scroll > 0) {
             int ax = cx + cw - 16, ay = bottom - 16;
-            g.fill(ax, ay, ax + 14, ay + 14, 0xCC24557F);
-            Ui.icon(g, Icon.BACK, ax + 1, ay + 1, 12, 0xFFFFFFFF);
+            g.fill(ax, ay, ax + 14, ay + 14, retro ? Ui.SCREEN : 0xCC24557F);
+            if (retro) g.renderOutline(ax, ay, 14, 14, Ui.TEXT);
+            Ui.icon(g, Icon.BACK, ax + 1, ay + 1, 12, onTile());
             hots.add(0, new Hot(ax, ay, 14, 14, "down", Component.translatable("rppda.btn.to_bottom"), () -> scroll = 0));
         }
     }
@@ -1185,9 +1331,9 @@ public class PdaScreen extends Screen {
             String name = c.getString("name");
             boolean blocked = c.getBoolean("blocked");
             Ui.avatar(gg, cx + 4, y + 3, 16, c.hasUUID("owner") ? c.getUUID("owner") : null, name, id);
-            gg.drawString(font, Ui.fit(font, label.isEmpty() ? name : label, cw - 100), cx + 24, y + 2, blocked ? Ui.DIM : Ui.TEXT, false);
+            txt(gg, fit(label.isEmpty() ? name : label, cw - 100), cx + 24, y + 2, blocked ? Ui.DIM : Ui.TEXT, false);
             String sub = (label.isEmpty() ? "" : name + " · ") + Ui.formatId(id) + (blocked ? " · " + Component.translatable("rppda.screen.blocked").getString() : "");
-            gg.drawString(font, Ui.fit(font, sub, cw - 100), cx + 24, y + 12, blocked ? Ui.RED : Ui.DIM, false);
+            txt(gg, fit(sub, cw - 100), cx + 24, y + 12, blocked ? Ui.RED : Ui.DIM, false);
             if (!hover) return;
             int ix = cx + cw - 16;
             rowIcon(gg, ix, y + 5, Icon.TRASH, "rppda.btn.remove_contact", "crm" + id, Ui.RED, () -> {
@@ -1212,9 +1358,9 @@ public class PdaScreen extends Screen {
 
     private void renderMembers(GuiGraphics g, int mx, int my) {
         if (chatRow == null) return;
-        g.drawString(font, Ui.fit(font, chatRow.getString("title"), cw - 90), cx + 22, cy + 5, Ui.TEXT, false);
+        txt(g, fit(chatRow.getString("title"), cw - 90), cx + 22, cy + 5, Ui.TEXT, false);
         if (members == null) {
-            g.drawString(font, Component.translatable("rppda.screen.loading"), cx + 6, listTop() + 6, Ui.DIM, false);
+            txt(g, Component.translatable("rppda.screen.loading"), cx + 6, listTop() + 6, Ui.DIM, false);
             return;
         }
         int adminId = members.getInt("admin");
@@ -1233,8 +1379,8 @@ public class PdaScreen extends Screen {
                 Ui.icon(gg, Icon.CROWN, nx, y + 5, 10, Ui.GOLD);
                 nx += 12;
             }
-            gg.drawString(font, Ui.fit(font, c.getString("name"), cw - 110), nx, y + 2, invited ? Ui.DIM : Ui.TEXT, false);
-            gg.drawString(font, Ui.formatId(id) + (invited ? " · " + Component.translatable("rppda.screen.invited").getString() : ""),
+            txt(gg, fit(c.getString("name"), cw - 110), nx, y + 2, invited ? Ui.DIM : Ui.TEXT, false);
+            txt(gg, Ui.formatId(id) + (invited ? " · " + Component.translatable("rppda.screen.invited").getString() : ""),
                     nx, y + 11, Ui.DIM, false);
             if (!hover || !iAmAdmin || id == meId) return;
             int ix = cx + cw - 16;
@@ -1254,19 +1400,23 @@ public class PdaScreen extends Screen {
     private void renderProfile(GuiGraphics g) {
         title(g, Component.translatable("rppda.page.profile"), 4);
         Ui.avatar(g, cx + 6, cy + 18, 32, meOwner, meName, meId);
-        g.drawString(font, meName, cx + 44, cy + 18, Ui.TEXT, false);
-        g.drawString(font, "ID " + Ui.formatId(meId), cx + 44, cy + 30, Ui.ACCENT, false);
+        txt(g, meName, cx + 44, cy + 18, Ui.TEXT, false);
+        txt(g, "ID " + Ui.formatId(meId), cx + 44, cy + 30, Ui.ACCENT, false);
         Component kind = Component.translatable(meKind.equals("NPC") ? "rppda.kind.npc" : "rppda.kind.player");
-        g.drawString(font, kind, cx + 44, cy + 41, Ui.DIM, false);
-        int by = cy + 64;
+        txt(g, kind, cx + 44, cy + 41, Ui.DIM, false);
+        int by = cy + (retro ? 54 : 64), st = retro ? 22 : 26;
         Component pw = Component.translatable(hasPw ? "rppda.profile.pw_on" : "rppda.profile.pw_off");
-        g.drawString(font, pw, cx + 6 + (hasPw ? 62 : 22), by + 5, hasPw ? Ui.GREEN : Ui.DIM, false);
+        txt(g, pw, cx + 6 + (hasPw ? 62 : 22), by + 5, hasPw ? Ui.GREEN : Ui.DIM, false);
         Component snd = Component.translatable(silent ? "rppda.profile.silent" : "rppda.profile.sound");
-        g.drawString(font, snd, cx + 28, by + 31, Ui.DIM, false);
-        List<FormattedCharSequence> hint = font.split(Component.translatable("rppda.profile.hint"), cw - 12);
-        int hy = by + 56;
+        txt(g, snd, cx + 28, by + st + 5, Ui.DIM, false);
+        Component look = Component.translatable(retro ? "rppda.profile.style_retro" : "rppda.profile.style_modern");
+        if (!forcedStyle.isEmpty()) look = look.copy().append(" ").append(Component.translatable("rppda.profile.style_server"));
+        txt(g, look, cx + 28, by + 2 * st + 5, Ui.DIM, false);
+        List<FormattedCharSequence> hint = font.split(Component.literal(Ui.up(Component.translatable("rppda.profile.hint").getString())), cw - 12);
+        int hy = by + 3 * st + 4;
         for (FormattedCharSequence l : hint) {
-            g.drawString(font, l, cx + 6, hy, 0xFF5E6B78, false);
+            if (hy + 9 > cy + ch) break;
+            txt(g, l, cx + 6, hy, Ui.HINT, false);
             hy += 9;
         }
     }
@@ -1278,8 +1428,8 @@ public class PdaScreen extends Screen {
             int id = a.getInt("id");
             String name = a.getString("name");
             Ui.avatar(gg, cx + 4, y + 3, 16, a.hasUUID("owner") ? a.getUUID("owner") : null, name, id);
-            gg.drawString(font, Ui.fit(font, name, cw - 60), cx + 24, y + 2, Ui.TEXT, false);
-            gg.drawString(font, Ui.fit(font, sysSub(a), cw - 40), cx + 24, y + 12, Ui.DIM, false);
+            txt(gg, fit(name, cw - 60), cx + 24, y + 2, Ui.TEXT, false);
+            txt(gg, fit(sysSub(a), cw - 40), cx + 24, y + 12, Ui.DIM, false);
             int ix = cx + cw - 14;
             if (a.getBoolean("online")) gg.fill(ix + 4, y + 4, ix + 8, y + 8, Ui.GREEN);
             if (a.getBoolean("locked")) Ui.icon(gg, Icon.LOCK, ix - 12, y + 3, 9, Ui.GOLD);
@@ -1302,16 +1452,16 @@ public class PdaScreen extends Screen {
         int id = sysAcc.getInt("id");
         String name = sysAcc.getString("name");
         Ui.avatar(g, cx + 6, cy + 22, 32, sysAcc.hasUUID("owner") ? sysAcc.getUUID("owner") : null, name, id);
-        g.drawString(font, name, cx + 44, cy + 22, Ui.TEXT, false);
-        g.drawString(font, sysSub(sysAcc), cx + 44, cy + 33, Ui.DIM, false);
+        txt(g, name, cx + 44, cy + 22, Ui.TEXT, false);
+        txt(g, sysSub(sysAcc), cx + 44, cy + 33, Ui.DIM, false);
         List<String> flags = new ArrayList<>();
         if (sysAcc.getBoolean("online")) flags.add(Component.translatable("rppda.sys.online").getString());
         if (sysAcc.getBoolean("pw")) flags.add(Component.translatable("rppda.sys.pw").getString());
         if (sysAcc.getBoolean("locked")) flags.add(Component.translatable("rppda.sys.locked").getString());
         if (id != 0) flags.add(Component.translatable("rppda.sys.issue", sysAcc.getInt("issue")).getString());
-        g.drawString(font, Ui.fit(font, String.join(" · ", flags), cw - 50), cx + 44, cy + 44, Ui.GOLD, false);
+        txt(g, fit(String.join(" · ", flags), cw - 50), cx + 44, cy + 44, Ui.GOLD, false);
         if (sysAcc.getLong("created") > 0)
-            g.drawString(font, Component.translatable("rppda.sys.created", Ui.day(sysAcc.getLong("created"))), cx + 44, cy + 55, Ui.DIM, false);
+            txt(g, Component.translatable("rppda.sys.created", Ui.day(sysAcc.getLong("created"))), cx + 44, cy + 55, Ui.DIM, false);
     }
 
     private void renderSysChats(GuiGraphics g, int mx, int my) {
@@ -1325,14 +1475,322 @@ public class PdaScreen extends Screen {
             String when = new java.text.SimpleDateFormat("dd.MM HH:mm").format(new java.util.Date(e.getLong("time")));
             String line = when + "  " + e.getString("gm") + "  "
                     + Component.translatable("rppda.log." + e.getString("action")).getString() + "  " + e.getString("target");
-            gg.drawString(font, Ui.fit(font, line, cw - 8), cx + 4, y + 1, Ui.DIM, false);
+            txt(gg, fit(line, cw - 8), cx + 4, y + 1, Ui.DIM, false);
         }, null);
+    }
+
+    // ================================================================ текст: в ретро — заглавными и со свечением
+
+    /** Текст: строка, компонент или готовая строка разбивки. В ретро — заглавными, с лёгким свечением люминофора. */
+    private void txt(GuiGraphics g, Object s, int x, int y, int color, boolean unused) {
+        FormattedCharSequence seq = s instanceof FormattedCharSequence f ? f : null;
+        String str = seq != null ? null : Ui.up(s instanceof Component c ? c.getString() : String.valueOf(s));
+        if (retro && color != Ui.SCREEN) {
+            int halo = (color & 0xFFFFFF) | 0x26000000;
+            float[][] offs = {{0.5f, 0}, {-0.5f, 0}, {0, 0.5f}, {0, -0.5f}};
+            for (float[] o : offs) {
+                g.pose().pushPose();
+                g.pose().translate(o[0], o[1], 0);
+                if (seq != null) g.drawString(font, seq, x, y, halo, false);
+                else g.drawString(font, str, x, y, halo, false);
+                g.pose().popPose();
+            }
+        }
+        if (seq != null) g.drawString(font, seq, x, y, color, false);
+        else g.drawString(font, str, x, y, color, false);
+    }
+
+    private int tw(Object s) {
+        if (s instanceof FormattedCharSequence f) return font.width(f);
+        return font.width(Ui.up(s instanceof Component c ? c.getString() : String.valueOf(s)));
+    }
+
+    private String fit(String s, int w) {
+        return Ui.fit(font, Ui.up(s), w);
+    }
+
+    private Component hint(String key) {
+        return Component.literal(Ui.up(Component.translatable(key).getString()))
+                .withStyle(Style.EMPTY.withColor(retro ? Ui.DIM & 0xFFFFFF : 0x555555));
+    }
+
+    /** Цвет значка/текста на плитке (в ретро плиток нет — люминофор). */
+    private int onTile() {
+        return retro ? Ui.TEXT : 0xFFFFFFFF;
+    }
+
+    /** Ретро: поля ввода без рамки Minecraft — цвет люминофора, рамка рисуется своя. */
+    private void box(EditBox b) {
+        if (!retro) return;
+        b.setBordered(false);
+        b.setTextColor(Ui.TEXT);
+        b.setTextColorUneditable(Ui.DIM);
+    }
+
+    private List<EditBox> framedBoxes() {
+        List<EditBox> out = new ArrayList<>();
+        for (EditBox b : new EditBox[]{password, search, promptA, promptB}) if (b != null) out.add(b);
+        return out;
+    }
+
+    // ================================================================ ретро: корпус, клавиши, кинескоп
+
+    private record Key(Icon icon, String tip, boolean enabled, Runnable run) {}
+
+    private static final int KEY_H = 20;
+
+    /** Клавиши корпуса слева направо (F3, F4…). F1 и F2 не трогаем — это скрытие интерфейса и снимок экрана. */
+    private List<Key> keys() {
+        List<Key> k = new ArrayList<>();
+        boolean ready = page != Page.WAIT && page != Page.REGISTER && page != Page.LOCKED;
+        k.add(new Key(Icon.CHATS, "rppda.page.chats", ready, () -> setPage(Page.CHATS)));
+        k.add(new Key(Icon.CONTACTS, "rppda.page.contacts", ready, () -> setPage(Page.CONTACTS)));
+        if (system) {
+            k.add(new Key(Icon.ACCOUNTS, "rppda.page.accounts", ready, () -> setPage(Page.SYS_ACCOUNTS)));
+            k.add(new Key(Icon.GLOBE, "rppda.page.all_chats", ready, () -> setPage(Page.SYS_CHATS)));
+            k.add(new Key(Icon.LOG, "rppda.page.log", ready, () -> setPage(Page.SYS_LOG)));
+            k.add(new Key(Icon.SYSTEM, "rppda.btn.back_system", ready && meId != 0, () -> send("sys.switch", t -> t.putInt("id", 0))));
+        } else {
+            k.add(new Key(Icon.PROFILE, "rppda.page.profile", ready, () -> setPage(Page.PROFILE)));
+            k.add(new Key(Icon.BACK, "rppda.btn.back", ready && canGoBack(), this::goBack));
+            k.add(new Key(Icon.LOCK, "rppda.btn.lock", ready && hasPw, () -> ClientPda.send("lock", new CompoundTag())));
+        }
+        k.add(new Key(Icon.CLOSE, "rppda.btn.close", true, this::onClose));
+        return k;
+    }
+
+    private boolean canGoBack() {
+        return prompt != Prompt.NONE || page == Page.CHAT || page == Page.MEMBERS || page == Page.SYS_ACCOUNT;
+    }
+
+    private void goBack() {
+        if (prompt != Prompt.NONE) {
+            prompt = Prompt.NONE;
+            rebuild();
+            return;
+        }
+        switch (page) {
+            case CHAT -> {
+                ClientPda.send("state", new CompoundTag());
+                setPage(chatReturn);
+            }
+            case MEMBERS -> setPage(Page.CHAT);
+            case SYS_ACCOUNT -> setPage(Page.SYS_ACCOUNTS);
+            default -> {}
+        }
+    }
+
+    private int keyW(int n) {
+        return Math.min(44, (sw - (n - 1) * 6) / n);
+    }
+
+    private int keyX(int i, int n) {
+        int kw = keyW(n);
+        int gap = n > 1 ? (sw - n * kw) / (n - 1) : 0;
+        return sx + i * (kw + gap);
+    }
+
+    private int keyY() {
+        return sy + sh + 10;
+    }
+
+    /** Нажать клавишу корпуса (мышью — держится, пока не отпустят). */
+    void pressKey(int i, boolean mouse) {
+        List<Key> ks = keys();
+        if (i < 0 || i >= ks.size()) return;
+        if (heldKey == i && !mouse) return; // автоповтор клавиатуры
+        heldKey = i;
+        heldByMouse = mouse;
+        Key k = ks.get(i);
+        if (!k.enabled) return;
+        Minecraft.getInstance().getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK.value(), 1.6f, 0.25f));
+        k.run.run();
+    }
+
+    /** F3…F9 при открытом ретро-КПК — его клавиши (зовётся до остальных модов). Возвращает, забрали ли нажатие. */
+    boolean functionKey(int key, boolean down) {
+        if (!retro) return false;
+        int i = key - GLFW.GLFW_KEY_F3;
+        if (i < 0 || i >= keys().size()) return false;
+        if (down) pressKey(i, false);
+        else if (heldKey == i && !heldByMouse) heldKey = -1;
+        return true;
+    }
+
+    /** Для снимков: показать клавишу нажатой без действия. */
+    void holdKeyForShot(int i) {
+        heldKey = i;
+        heldByMouse = true;
+    }
+
+    private void retroBody(GuiGraphics g, int mx, int my) {
+        // Корпус со срезанными углами.
+        g.fill(x0 + 3, y0, x0 + w - 3, y0 + h, Ui.BODY);
+        g.fill(x0, y0 + 3, x0 + w, y0 + h - 3, Ui.BODY);
+        g.fill(x0 + 1, y0 + 1, x0 + w - 1, y0 + h - 1, Ui.BODY);
+        g.fill(x0 + 3, y0, x0 + w - 3, y0 + 1, Ui.BODY_LIGHT);
+        g.fill(x0, y0 + 3, x0 + 1, y0 + h - 3, Ui.BODY_LIGHT);
+        g.fill(x0 + w - 1, y0 + 3, x0 + w, y0 + h - 3, Ui.BODY_DARK);
+        g.fill(x0 + 3, y0 + h - 1, x0 + w - 3, y0 + h, Ui.BODY_DARK);
+        int label = system ? 0xFF3C1412 : 0xFF50483C;
+        g.drawString(font, Component.translatable(system ? "rppda.body.system" : "rppda.body.player"), x0 + 12, y0 + 5, label, false);
+        // Решётка динамика и индикатор (мигает, когда есть непрочитанное).
+        for (int i = 0; i < 6; i++) g.fill(x0 + w - 70 + i * 6, y0 + 6, x0 + w - 67 + i * 6, y0 + 12, Ui.BODY_DARK);
+        boolean blink = !system && ClientPda.unread > 0 && (System.currentTimeMillis() / 500) % 2 == 0;
+        int led = system ? 0xFFFF3C28 : blink ? 0xFF1E5A1E : 0xFF5AFF5A;
+        g.fill(x0 + w - 23, y0 + 5, x0 + w - 16, y0 + 12, 0xFF201E1C);
+        g.fill(x0 + w - 22, y0 + 6, x0 + w - 17, y0 + 11, led);
+        // Рамка экрана.
+        g.fill(sx - 7, sy - 6, sx + sw + 7, sy + sh + 6, 0xFF2A2724);
+        g.fill(sx - 7, sy - 6, sx + sw + 7, sy - 5, 0xFF181614);
+        g.fill(sx - 1, sy - 1, sx + sw + 1, sy + sh + 1, 0xFF080A08);
+        g.fill(sx, sy, sx + sw, sy + sh, Ui.SCREEN);
+        // Клавиши.
+        List<Key> ks = keys();
+        int n = ks.size(), kw = keyW(n), ky = keyY();
+        int face = system ? 0xFF3C1816 : 0xFF46423C, top = system ? 0xFF64302C : 0xFF6E6A62, shadow = system ? 0xFF241010 : 0xFF2A2724;
+        for (int i = 0; i < n; i++) {
+            Key k = ks.get(i);
+            int kx = keyX(i, n);
+            boolean down = heldKey == i;
+            boolean hover = mx >= kx && mx < kx + kw && my >= ky && my < ky + KEY_H + 2;
+            int y = down ? ky + 2 : ky;
+            if (!down) g.fill(kx, ky + 2, kx + kw, ky + KEY_H + 2, shadow);
+            g.fill(kx, y, kx + kw, y + KEY_H, down ? ((face & 0xFEFEFE) >>> 1) | 0xFF000000 : hover && k.enabled ? top : face);
+            if (!down) g.fill(kx, y, kx + kw, y + 1, top);
+            Ui.icon(g, k.icon, kx + kw / 2 - 8, y + KEY_H / 2 - 8, k.enabled ? 0xFFE2DCCE : 0xFF7E786E);
+            String f = "F" + (3 + i);
+            g.drawString(font, f, kx + 2, ky + KEY_H + 5, label, false);
+            hots.add(new Hot(kx, ky, kw, KEY_H + 2, "key" + i + k.icon, Component.translatable(k.tip), () -> {}));
+        }
+    }
+
+    /** Кинескоп: строки развёртки (в настоящих пикселях окна) и затемнение к краям. */
+    private void crt(GuiGraphics g) {
+        double gs = Minecraft.getInstance().getWindow().getGuiScale();
+        int step = gs >= 3 ? 3 : 2;
+        g.pose().pushPose();
+        g.pose().translate(0, 0, 300);
+        g.pose().scale((float) (1 / gs), (float) (1 / gs), 1);
+        int rx0 = (int) Math.round(sx * gs), rx1 = (int) Math.round((sx + sw) * gs);
+        int ry0 = (int) Math.round(sy * gs), ry1 = (int) Math.round((sy + sh) * gs);
+        for (int y = ry0 + step - 1; y < ry1; y += step) g.fill(rx0, y, rx1, y + 1, 0x30000000);
+        g.pose().popPose();
+        g.pose().pushPose();
+        g.pose().translate(0, 0, 300);
+        com.mojang.blaze3d.systems.RenderSystem.enableBlend();
+        g.blit(VIGNETTE, sx, sy, sw, sh, 0, 0, 160, 96, 160, 96);
+        g.pose().popPose();
+    }
+
+    // ---------------------------------------------------------------- ретро: переписка как журнал терминала
+
+    private void layoutRetro() {
+        List<Block> out = new ArrayList<>();
+        String lastDay = "";
+        int inner = cw - 14;
+        for (CompoundTag m : msgs) {
+            String day = Ui.day(m.getLong("t"));
+            String date = day.equals(lastDay) ? null : day;
+            lastDay = day;
+            int fl = m.getInt("fl");
+            if ((fl & 2) != 0) {
+                String n = "— " + Ui.up(noticeText(m.getString("x")).getString()) + " —";
+                List<FormattedCharSequence> lines = font.split(Component.literal(n), cw - 10);
+                out.add(new Block(m, lines, lines.size() * 10 + 2 + (date != null ? 12 : 0), false, true, date, 0, null));
+                continue;
+            }
+            boolean own = m.getInt("f") == meId;
+            boolean deleted = (fl & 1) != 0;
+            String text = m.getString("x");
+            String body = deleted && text.isEmpty() ? Component.translatable("rppda.chat.deleted").getString()
+                    : (fl & 4) != 0 ? "* " + text : text;
+            List<FormattedCharSequence> lines = font.split(Component.literal(Ui.up(body)), inner);
+            List<FormattedCharSequence> quote = null;
+            if (m.getInt("r") > 0) {
+                String q = "» " + (m.contains("rn") ? m.getString("rn") + ": " + (m.getString("rx").isEmpty() ? "…" : m.getString("rx")) : "…");
+                quote = List.of(Language.fit(font, Ui.up(q), inner));
+            }
+            int hgt = 10 + (quote != null ? 10 : 0) + lines.size() * 10 + 3;
+            out.add(new Block(m, lines, hgt + (date != null ? 12 : 0), own, false, date, 0, quote));
+        }
+        blocks = out;
+    }
+
+    /** Инверсная надпись (как выделение на терминале). Возвращает правый край. */
+    private int inverse(GuiGraphics g, String s, int x, int y) {
+        String u = Ui.up(s);
+        g.fill(x, y - 1, x + font.width(u) + 3, y + 8, Ui.TEXT);
+        g.drawString(font, u, x + 2, y, Ui.SCREEN, false);
+        return x + font.width(u) + 3;
+    }
+
+    private void retroBlock(GuiGraphics g, Block b, int by, int mx, int my, int top, int bottom, boolean canWrite) {
+        if (b.date != null) {
+            String d = "== " + b.date + " ==";
+            txt(g, d, cx + cw / 2 - tw(d) / 2, by + 2, Ui.DIM, false);
+            by += 12;
+        }
+        if (b.notice) {
+            int ly = by + 1;
+            for (FormattedCharSequence l : b.lines) {
+                txt(g, l, cx + cw / 2 - font.width(l) / 2, ly, Ui.DIM, false);
+                ly += 10;
+            }
+            return;
+        }
+        CompoundTag m = b.m;
+        int bh = b.height - (b.date != null ? 12 : 0);
+        boolean deleted = (m.getInt("fl") & 1) != 0;
+        boolean hover = mx >= cx && mx < cx + cw && my >= by && my < by + bh - 2 && my >= top && my < bottom;
+        if (hover) g.fill(cx, by, cx + cw, by + bh - 2, Ui.ROW_HOVER);
+        int x = cx + 2, y = by + 2;
+        x = txtEnd(g, Ui.clock(m.getLong("t")), x, y, Ui.DIM) + 4;
+        if (b.own) x = inverse(g, Component.translatable("rppda.chat.you").getString(), x, y);
+        else x = txtEnd(g, fit(m.getString("n"), cw - 120) + ":", x, y, Ui.ACCENT);
+        if (m.contains("g")) x = inverse(g, Component.translatable("rppda.chat.gm", m.getString("g")).getString(), x + 4, y);
+        if (deleted) txtEnd(g, Component.translatable("rppda.chat.deleted_mark").getString(), x + 4, y, Ui.DIM);
+        y += 10;
+        if (b.quote != null) {
+            txt(g, b.quote.get(0), cx + 10, y, Ui.DIM, false);
+            y += 10;
+        }
+        for (FormattedCharSequence l : b.lines) {
+            txt(g, l, cx + 10, y, deleted ? Ui.DIM : Ui.TEXT, false);
+            y += 10;
+        }
+        if (hover && !deleted) {
+            int seq = m.getInt("s");
+            int ix = cx + cw - 15;
+            if (b.own || system) {
+                rowIcon(g, ix, by, Icon.TRASH, "rppda.btn.delete", "del" + seq, Ui.TEXT, () -> send("chat.delete", t -> {
+                    t.putInt("chat", chatRow.getInt("id"));
+                    t.putInt("seq", seq);
+                }));
+                ix -= 15;
+            }
+            if (canWrite) {
+                String rn = b.own ? meName : m.getString("n");
+                String rx = m.getString("x");
+                rowIcon(g, ix, by, Icon.REPLY, "rppda.btn.reply", "rep" + seq, Ui.TEXT, () -> {
+                    replySeq = seq;
+                    replyName = rn;
+                    replyText = rx;
+                    rebuild();
+                });
+            }
+        }
+    }
+
+    private int txtEnd(GuiGraphics g, String s, int x, int y, int color) {
+        txt(g, s, x, y, color, false);
+        return x + tw(s);
     }
 
     /** Обрезка одной строки по ширине (для цитат). */
     private static final class Language {
-        static FormattedCharSequence fit(net.minecraft.client.gui.Font font, String s, int w) {
-            return FormattedCharSequence.forward(Ui.fit(font, s, w), Style.EMPTY);
+        static FormattedCharSequence fit(net.minecraft.client.gui.Font f, String s, int w) {
+            return FormattedCharSequence.forward(Ui.fit(f, s, w), Style.EMPTY);
         }
     }
 }

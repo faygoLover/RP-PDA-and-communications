@@ -323,7 +323,9 @@ public final class PdaServer {
                 s.mode = Session.Mode.REGISTER;
                 s.hand = hand;
                 sessions.put(sp.getUUID(), s);
-                Net.send(sp, "register", new CompoundTag());
+                CompoundTag t = new CompoundTag();
+                t.putString("style", PdaConfig.style);
+                Net.send(sp, "register", t);
             }
             case DISABLED -> actionbar(sp, "rppda.msg.disabled");
             case LOCKED -> {
@@ -337,6 +339,7 @@ public final class PdaServer {
                 t.putInt("id", a.id);
                 t.putString("name", a.name);
                 t.putLong("wait", lockoutLeft(sp));
+                t.putString("style", PdaConfig.style);
                 Net.send(sp, "locked", t);
             }
             case OK -> open(sp, store.account(PdaItem.account(stack)));

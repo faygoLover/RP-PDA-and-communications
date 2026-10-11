@@ -160,6 +160,16 @@ L = {
     "rppda.log.npc": ("создал NPC", "created NPC"),
     "rppda.log.rename": ("переименовал", "renamed"),
     "curios.identifier.pda": ("КПК", "PDA"),
+    "rppda.body.player": ("КПК «СИГНАЛ-85»", "PDA \"SIGNAL-85\""),
+    "rppda.body.system": ("СИСТЕМА-85", "SYSTEM-85"),
+    "rppda.chat.you": ("Вы", "You"),
+    "rppda.chat.deleted_mark": ("[удалено]", "[deleted]"),
+    "rppda.btn.style_retro": ("Вид: ретро (80-е)", "Look: retro (80s)"),
+    "rppda.btn.style_modern": ("Вид: современный", "Look: modern"),
+    "rppda.btn.style_forced": ("Вид КПК задан сервером", "The server sets the PDA look"),
+    "rppda.profile.style_retro": ("Вид: ретро", "Look: retro"),
+    "rppda.profile.style_modern": ("Вид: современный", "Look: modern"),
+    "rppda.profile.style_server": ("(задан сервером)", "(set by the server)"),
 }
 
 if __name__ == "__main__":

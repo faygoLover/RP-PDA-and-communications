@@ -23,13 +23,51 @@ public final class Ui {
     private Ui() {}
 
     public static final ResourceLocation ICONS = new ResourceLocation(RpPda.MODID, "textures/gui/icons.png");
+    /** Ретро: попиксельные значки 12×12 без сглаживания (scripts/gen_retro_icons.py). */
+    public static final ResourceLocation ICONS_RETRO = new ResourceLocation(RpPda.MODID, "textures/gui/icons_retro.png");
     private static final int ATLAS_W = 128, ATLAS_H = 80;
 
-    public static final int BODY = 0xFF23272E, BODY_LIGHT = 0xFF3A404A, BODY_DARK = 0xFF15181D;
-    public static final int SCREEN = 0xFF0E1621, PANEL = 0xFF17212B, ROW_HOVER = 0x22FFFFFF;
-    public static final int TEXT = 0xFFE6EDF3, DIM = 0xFF8B98A5, ACCENT = 0xFF4FA3FF, RED = 0xFFE5534B,
-            GREEN = 0xFF57C26A, GOLD = 0xFFE0B341;
-    public static final int OWN = 0xFF2B5278, OTHER = 0xFF1F2A36, SYSTEM_BODY = 0xFF2E2224;
+    /** Вид окна: современный или ретро (80-е, люминофор). Ставит открытое окно КПК ({@link #theme}). */
+    public static boolean retro;
+
+    // Цвета текущего вида (меняет {@link #theme}).
+    public static int BODY, BODY_LIGHT, BODY_DARK, SCREEN, PANEL, ROW_HOVER, TEXT, DIM, ACCENT, RED, GREEN, GOLD,
+            OWN, OTHER, SYSTEM_BODY, SEP, BAR, TIME, QUOTE, HINT, TOAST_BG, TILE_GLOBE, TILE_GROUP, TILE_INVITE, DATE_BG;
+
+    static {
+        theme(false, false);
+    }
+
+    /** Цвета вида. Ретро: зелёный люминофор, у системного КПК — янтарный; «красный/жёлтый/зелёный» — оттенки его же. */
+    public static void theme(boolean retroStyle, boolean system) {
+        retro = retroStyle;
+        if (!retroStyle) {
+            BODY = 0xFF23272E; BODY_LIGHT = 0xFF3A404A; BODY_DARK = 0xFF15181D;
+            SCREEN = 0xFF0E1621; PANEL = 0xFF17212B; ROW_HOVER = 0x22FFFFFF;
+            TEXT = 0xFFE6EDF3; DIM = 0xFF8B98A5; ACCENT = 0xFF4FA3FF; RED = 0xFFE5534B; GREEN = 0xFF57C26A; GOLD = 0xFFE0B341;
+            OWN = 0xFF2B5278; OTHER = 0xFF1F2A36; SYSTEM_BODY = 0xFF2E2224;
+            SEP = 0xFF1E2833; BAR = 0xFF0A1018; TIME = 0xFF7F93A8; QUOTE = 0xFF9FB3C8; HINT = 0xFF5E6B78;
+            TOAST_BG = 0xEE10161D; TILE_GLOBE = 0xFF24557F; TILE_GROUP = 0xFF3C4A5C; TILE_INVITE = 0xFF5A4A1E; DATE_BG = 0xFF1A2430;
+            return;
+        }
+        int fg, dim, mid, bg, panel;
+        if (system) {
+            fg = 0xFFFFB840; dim = 0xFF965C1C; mid = 0xFFD28C2C; bg = 0xFF180C02; panel = 0xFF2A1606;
+        } else {
+            fg = 0xFF78FF8C; dim = 0xFF2E8C40; mid = 0xFF54C868; bg = 0xFF061408; panel = 0xFF0C2410;
+        }
+        SCREEN = bg; PANEL = panel; ROW_HOVER = (fg & 0xFFFFFF) | 0x18000000;
+        TEXT = fg; DIM = dim; ACCENT = mid; RED = fg; GREEN = mid; GOLD = fg;
+        OWN = panel; OTHER = panel; SEP = dim; BAR = fg; TIME = dim; QUOTE = dim; HINT = dim;
+        TOAST_BG = fg; TILE_GLOBE = 0; TILE_GROUP = 0; TILE_INVITE = 0; DATE_BG = 0;
+        BODY = system ? 0xFF963028 : 0xFFC0B69E; BODY_LIGHT = system ? 0xFFB24A3E : 0xFFDCD4BE;
+        BODY_DARK = system ? 0xFF601C18 : 0xFF847A66; SYSTEM_BODY = BODY;
+    }
+
+    /** Ретро пишет заглавными. */
+    public static String up(String s) {
+        return retro ? s.toUpperCase(java.util.Locale.ROOT) : s;
+    }
 
     /** Номер значка в атласе — тот же порядок, что в {@code scripts/gen_icons.py}. */
     public enum Icon {
@@ -41,16 +79,33 @@ public final class Ui {
     }
 
     public static void icon(GuiGraphics g, Icon icon, int x, int y, int color) {
+        iconFrom(g, retro ? ICONS_RETRO : ICONS, icon, x, y, color);
+    }
+
+    public static void iconFrom(GuiGraphics g, ResourceLocation atlas, Icon icon, int x, int y, int color) {
         int n = icon.ordinal();
         RenderSystem.enableBlend();
         RenderSystem.setShaderColor(((color >> 16) & 255) / 255f, ((color >> 8) & 255) / 255f, (color & 255) / 255f,
                 ((color >>> 24) & 255) / 255f);
-        g.blit(ICONS, x, y, (n % 8) * 16, (n / 8) * 16, 16, 16, ATLAS_W, ATLAS_H);
+        g.blit(atlas, x, y, (n % 8) * 16, (n / 8) * 16, 16, 16, ATLAS_W, ATLAS_H);
         RenderSystem.setShaderColor(1, 1, 1, 1);
     }
 
-    /** Значок поменьше (масштаб). */
+    /**
+     * Значок заданного размера. Ретро не масштабирует дробно (иначе пиксели «плывут»): 1:1 с тем же центром,
+     * крупные (от 24) — ровно ×2.
+     */
     public static void icon(GuiGraphics g, Icon icon, int x, int y, int size, int color) {
+        if (retro) {
+            int scale = size >= 24 ? 2 : 1;
+            int cx = x + size / 2, cy = y + size / 2;
+            g.pose().pushPose();
+            g.pose().translate(cx - 8 * scale, cy - 8 * scale, 0);
+            g.pose().scale(scale, scale, 1);
+            icon(g, icon, 0, 0, color);
+            g.pose().popPose();
+            return;
+        }
         g.pose().pushPose();
         g.pose().translate(x, y, 0);
         g.pose().scale(size / 16f, size / 16f, 1);
@@ -77,6 +132,25 @@ public final class Ui {
             this(x, y, 18, 18, icon, tooltip, null, press);
         }
 
+        /** Ретро: значок люминофором; наведение — рамка, кнопка с подписью — инверсия. */
+        private void renderRetro(GuiGraphics g) {
+            Font font = Minecraft.getInstance().font;
+            int x = getX(), y = getY();
+            boolean hot = isHoveredOrFocused() && active;
+            if (label != null) {
+                g.fill(x, y, x + width, y + height, hot ? TEXT : ACCENT);
+                String l = up(label.getString());
+                int tw = 16 + 2 + font.width(l);
+                int x0 = x + (width - tw) / 2;
+                icon(g, icon, x0, y + (height - 16) / 2, SCREEN);
+                g.drawString(font, l, x0 + 18, y + (height - 8) / 2, SCREEN, false);
+                return;
+            }
+            if (hot) g.renderOutline(x, y, width, height, TEXT);
+            int c = !active ? DIM : color;
+            icon(g, icon, x + (width - 16) / 2, y + (height - 16) / 2, c);
+        }
+
         public void retip(Component tooltip) {
             setMessage(tooltip);
             setTooltip(Tooltip.create(tooltip));
@@ -84,6 +158,10 @@ public final class Ui {
 
         @Override
         protected void renderWidget(GuiGraphics g, int mx, int my, float pt) {
+            if (retro) {
+                renderRetro(g);
+                return;
+            }
             if (isHoveredOrFocused() && active) g.fill(getX(), getY(), getX() + width, getY() + height, 0x33FFFFFF);
             if (label != null) g.fill(getX(), getY(), getX() + width, getY() + height, isHovered() ? 0xFF2F6EA8 : 0xFF24557F);
             int c = !active ? 0xFF55606B : isHoveredOrFocused() ? 0xFFFFFFFF : color;
@@ -101,6 +179,23 @@ public final class Ui {
 
     /** Аватар: лицо персонажа, если игрок в сети; иначе буква на цветном квадрате. Система — звезда. */
     public static void avatar(GuiGraphics g, int x, int y, int size, @Nullable UUID owner, String name, int id) {
+        if (retro) {
+            // Люминофор одноцветный: рамка и буква (у Системы — звезда).
+            g.renderOutline(x, y, size, size, DIM);
+            if (id == 0 && owner == null) {
+                icon(g, Icon.SYSTEM, x + 1, y + 1, size - 2, TEXT);
+                return;
+            }
+            Font font = Minecraft.getInstance().font;
+            String letter = name.isEmpty() ? "?" : up(name.substring(0, name.offsetByCodePoints(0, 1)));
+            float scale = size >= 24 ? 2f : 1f;
+            g.pose().pushPose();
+            g.pose().translate(x + size / 2f, y + size / 2f, 0);
+            g.pose().scale(scale, scale, 1);
+            g.drawString(font, letter, -font.width(letter) / 2, -4, TEXT, false);
+            g.pose().popPose();
+            return;
+        }
         if (id == 0 && owner == null) {
             g.fill(x, y, x + size, y + size, 0xFF8E2A2A);
             icon(g, Icon.SYSTEM, x + 1, y + 1, size - 2, 0xFFFFFFFF);
