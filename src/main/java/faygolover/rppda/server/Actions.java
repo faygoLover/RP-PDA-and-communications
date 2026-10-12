@@ -404,7 +404,12 @@ public final class Actions {
                 // Системный КПК в своей учётке (Система) аватарку не меняет; ГМ в чужой учётке — может.
                 if (me.kind == Account.Kind.SYSTEM) return;
                 int mode = d.getInt("mode");
-                if (mode != Account.AV_FACE && mode != Account.AV_LETTER) return;
+                if (mode < Account.AV_FACE || mode > Account.AV_PICTURE) return;
+                // Портрет — фото скина владельца (у NPC владельца нет).
+                if (mode == Account.AV_PORTRAIT && me.owner == null) return;
+                // Своя картинка: новая — в этом же действии; без новой — только если уже загружена.
+                if (d.contains("png") && !AvatarPics.upload(sp, store, me, d.getByteArray("png"))) return;
+                if (mode == Account.AV_PICTURE && me.avatarPic == 0) return;
                 int color = d.getInt("color");
                 me.avatar = mode;
                 me.avatarColor = color >= 0 && color < Account.AV_COLORS ? color : -1;
@@ -427,6 +432,7 @@ public final class Actions {
                 Net.send(sp, "avatars", t);
             }
             case "nearby", "nearby.offer", "nearby.accept", "nearby.decline" -> Nearby.handle(sp, s, store, me, op, d);
+            case "avatar.pic" -> AvatarPics.query(sp, store, d.getInt("id"));
             default -> {}
         }
     }
@@ -837,6 +843,14 @@ public final class Actions {
                 a.locked = false;
                 store.markAccounts();
                 store.gmLog(gm, "unlock", label(a));
+                refreshAccount(sp, store, a);
+            }
+            case "sys.avatar_reset" -> {
+                Account a = target(store, d);
+                if (a == null || a.avatarPic == 0) return;
+                AvatarPics.remove(store, a);
+                store.markAccounts();
+                store.gmLog(gm, "avatar_reset", label(a));
                 refreshAccount(sp, store, a);
             }
             case "sys.resetpw" -> {

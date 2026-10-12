@@ -17,12 +17,15 @@ import java.util.Set;
 public final class Avatars {
     private Avatars() {}
 
-    /** Вид: 0 — лицо (без сети — буква), 1 — буква на цвете; цвет — номер в {@link #COLORS} или −1 (по ID). */
-    public record Style(int mode, int color, String mark) {
-        static final Style DEFAULT = new Style(0, -1, "");
+    /**
+     * Вид: 0 — лицо (без сети — знаки), 1 — знаки на цвете, 2 — портрет (фото RP Core), 3 — своя картинка (номер
+     * {@code pic}). Цвет — номер в {@link #COLORS} или −1 (по ID); цвет и знаки — и запасной вид, пока картинки нет.
+     */
+    public record Style(int mode, int color, String mark, int pic) {
+        static final Style DEFAULT = new Style(0, -1, "", 0);
 
         static Style of(CompoundTag t) {
-            return new Style(t.getInt("av"), t.contains("avColor") ? t.getInt("avColor") : -1, t.getString("avMark"));
+            return new Style(t.getInt("av"), t.contains("avColor") ? t.getInt("avColor") : -1, t.getString("avMark"), t.getInt("avPic"));
         }
     }
 

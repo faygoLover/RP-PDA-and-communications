@@ -52,16 +52,34 @@ L = {
     "rppda.avatar.color_auto": ("Авто (по номеру учётки)", "Auto (by account ID)"),
     "rppda.avatar.color_n": ("Цвет %s", "Color %s"),
     "rppda.avatar.mark": ("Знаки", "Mark"),
-    "rppda.avatar.hint": ("«Лицо» — лицо персонажа, пока вы в сети; иначе и в виде «Буква на цвете» — знаки на цвете. "
-                          "Знаки — 1–2 символа, пусто — первая буква имени.",
-                          "\"Face\" shows your character's face while you are online; otherwise, and in \"Letter on color\", "
-                          "the mark on a color. Mark: 1–2 characters, empty — first letter of the name."),
-    "rppda.avatar.hint_retro": ("На экране ретро цвета не видно — только знаки. Цвет увидят те, у кого КПК современного вида. "
+    "rppda.avatar.portrait": ("Портрет", "Portrait"),
+    "rppda.avatar.picture": ("Картинка", "Picture"),
+    "rppda.avatar.pick_title": ("Картинка для аватарки КПК", "Picture for the PDA avatar"),
+    "rppda.avatar.file_new": ("выбрана — сохранится по «Готово»", "chosen — saved on OK"),
+    "rppda.avatar.file_old": ("загружена раньше", "uploaded before"),
+    "rppda.avatar.file_none": ("файл не выбран", "no file chosen"),
+    "rppda.btn.pick_file": ("Выбрать файл…", "Choose file…"),
+    "rppda.btn.avatar_reset": ("Сбросить картинку-аватарку", "Remove the avatar picture"),
+    "rppda.log.avatar_reset": ("сбросил картинку-аватарку", "removed avatar picture"),
+    "rppda.err.avatar_no_file": ("Сначала выберите файл", "Choose a file first"),
+    "rppda.err.avatar_pick": ("Окно выбора файла не открылось", "The file dialog did not open"),
+    "rppda.err.avatar_file": ("Этот файл не подходит: нужна картинка PNG, JPG или BMP", "This file won't do: use a PNG, JPG or BMP picture"),
+    "rppda.err.avatar_bad": ("Сервер не принял картинку", "The server rejected the picture"),
+    "rppda.err.avatar_too_soon": ("Картинку можно сменить через %s с", "You can change the picture in %s s"),
+    "rppda.avatar.hint": ("«Лицо» — лицо по скину, пока вы в сети. «Портрет» — снимок скина, виден и когда вас нет. "
+                          "«Картинка» — файл с компьютера (обрежется до квадрата). Пока лица или картинки нет — знаки на цвете: "
+                          "1–2 символа, пусто — первая буква имени.",
+                          "\"Face\" uses your skin while you are online. \"Portrait\" is a skin snapshot shown even when you are away. "
+                          "\"Picture\" is a file from your computer (cropped to a square). Without a face or picture, the mark on a color "
+                          "is shown: 1–2 characters, empty — first letter of the name."),
+    "rppda.avatar.hint_retro": ("На экране ретро видны только знаки: лица, картинки и цвета увидят владельцы КПК современного вида. "
                                 "Знаки — 1–2 символа, пусто — первая буква имени.",
-                                "A retro screen shows only the mark. Owners of modern-look PDAs will see the color. "
+                                "A retro screen shows only the mark; owners of modern-look PDAs see faces, pictures and colors. "
                                 "Mark: 1–2 characters, empty — first letter of the name."),
     "rppda.profile.avatar_face": ("Аватарка: лицо персонажа", "Avatar: character's face"),
     "rppda.profile.avatar_letter": ("Аватарка: знаки на цвете", "Avatar: mark on a color"),
+    "rppda.profile.avatar_portrait": ("Аватарка: портрет", "Avatar: portrait"),
+    "rppda.profile.avatar_picture": ("Аватарка: своя картинка", "Avatar: own picture"),
     "rppda.page.profile": ("Профиль", "Profile"),
     "rppda.page.accounts": ("Учётки", "Accounts"),
     "rppda.page.all_chats": ("Все чаты", "All chats"),

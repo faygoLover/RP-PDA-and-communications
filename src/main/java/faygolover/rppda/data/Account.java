@@ -62,12 +62,17 @@ public final class Account {
     public long hackTime;
     /** Попытки взлома кончились: эта выдача КПК мертва до перевыпуска ГМом. */
     public boolean burned;
-    /** Аватарка: вид ({@link #AV_FACE}, {@link #AV_LETTER}), цвет из палитры (−1 — по ID), 1–2 знака (пусто — буква имени). */
+    /**
+     * Аватарка: вид ({@link #AV_FACE} … {@link #AV_PICTURE}), цвет из палитры (−1 — по ID), 1–2 знака (пусто — буква
+     * имени); номер своей картинки (0 — нет; растёт с каждой загрузкой, клиенты по нему понимают, что она сменилась).
+     */
     public int avatar = AV_FACE;
     public int avatarColor = -1;
     public String avatarMark = "";
+    public int avatarPic;
 
-    public static final int AV_FACE = 0, AV_LETTER = 1;
+    /** Лицо по скину, пока в сети; знаки на цвете; портрет (фото RP Core, виден и без сети); своя картинка. */
+    public static final int AV_FACE = 0, AV_LETTER = 1, AV_PORTRAIT = 2, AV_PICTURE = 3;
     public static final int AV_COLORS = 12;
 
     public Account(int id, Kind kind, String name) {
@@ -131,6 +136,7 @@ public final class Account {
         if (avatar != AV_FACE) t.putInt("av", avatar);
         if (avatarColor >= 0) t.putInt("avColor", avatarColor);
         if (!avatarMark.isEmpty()) t.putString("avMark", avatarMark);
+        if (avatarPic > 0) t.putInt("avPic", avatarPic);
         return t;
     }
 
@@ -181,6 +187,7 @@ public final class Account {
         a.avatar = t.getInt("av");
         a.avatarColor = t.contains("avColor") ? t.getInt("avColor") : -1;
         a.avatarMark = t.getString("avMark");
+        a.avatarPic = t.getInt("avPic");
         return a;
     }
 }

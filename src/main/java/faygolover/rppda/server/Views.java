@@ -116,6 +116,7 @@ public final class Views {
         t.putInt("av", a.avatar);
         t.putInt("avColor", a.avatarColor);
         t.putString("avMark", a.avatarMark);
+        t.putInt("avPic", a.avatarPic);
         return t;
     }
 

@@ -268,6 +268,8 @@ public final class Ui {
             return;
         }
         Minecraft mc = Minecraft.getInstance();
+        if (st.mode() == 2 && owner != null && faygolover.rpcore.client.photo.ClientPhotos.drawFace(g, owner, x, y, size)) return;
+        if (st.mode() == 3 && AvatarPics.draw(g, id, st.pic(), x, y, size)) return;
         if (st.mode() == 0 && owner != null && mc.getConnection() != null) {
             PlayerInfo info = mc.getConnection().getPlayerInfo(owner);
             if (info != null) {

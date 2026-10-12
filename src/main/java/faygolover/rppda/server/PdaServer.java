@@ -138,6 +138,7 @@ public final class PdaServer {
         lockoutUntil.clear();
         Messaging.reset();
         Nearby.reset();
+        AvatarPics.reset();
         if (io != null) io.shutdown();
         io = null;
     }
@@ -179,6 +180,7 @@ public final class PdaServer {
         active.remove(id);
         failed.remove(id);
         Nearby.forget(id);
+        AvatarPics.forget(id);
     }
 
     private static void onDeath(LivingDeathEvent e) {

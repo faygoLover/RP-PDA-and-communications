@@ -71,6 +71,11 @@ public final class PdaStore {
 
     public record GmEntry(long time, String gm, String action, String target) {}
 
+    /** Папка хранилища в мире ({@code <мир>/rppda}). */
+    public Path root() {
+        return root;
+    }
+
     public PdaStore(Path root, Logger log) {
         this.root = root;
         this.log = log;

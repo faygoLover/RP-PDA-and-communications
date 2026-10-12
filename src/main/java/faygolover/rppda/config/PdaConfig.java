@@ -32,6 +32,7 @@ public final class PdaConfig {
     private static final ForgeConfigSpec.IntValue DECRYPTOR_COOLDOWN;
     private static final ForgeConfigSpec.IntValue CIPHER_SECONDS;
     private static final ForgeConfigSpec.IntValue EXCHANGE_RADIUS;
+    private static final ForgeConfigSpec.IntValue AVATAR_UPLOAD_SECONDS;
 
     public static boolean chatToPda = false;
     public static int chatRadius = 16;
@@ -58,6 +59,7 @@ public final class PdaConfig {
     public static int decryptorCooldown = 10;
     public static int cipherSeconds = 60;
     public static int exchangeRadius = 5;
+    public static int avatarUploadSeconds = 30;
 
     static {
         ForgeConfigSpec.Builder b = new ForgeConfigSpec.Builder();
@@ -108,6 +110,8 @@ public final class PdaConfig {
         LOCKOUT_SECONDS = b.comment("Пауза после неверных паролей, секунд.").defineInRange("lockout_seconds", 60, 0, 3600);
         EXCHANGE_RADIUS = b.comment("Обмен контактами рядом: в скольких блоках видно других игроков с КПК (связь не нужна).")
                 .defineInRange("exchange_radius", 5, 1, 32);
+        AVATAR_UPLOAD_SECONDS = b.comment("Своя картинка-аватарка: игрок меняет её не чаще раза в столько секунд.")
+                .defineInRange("avatar_upload_seconds", 30, 0, 86400);
         b.pop();
         b.push("hacking");
         HACK_ATTEMPTS = b.comment("Взлом КПК отмычкой: попыток до блокировки КПК (ошибки помнит КПК, не отмычка).")
@@ -151,5 +155,6 @@ public final class PdaConfig {
         decryptorCooldown = DECRYPTOR_COOLDOWN.get();
         cipherSeconds = CIPHER_SECONDS.get();
         exchangeRadius = EXCHANGE_RADIUS.get();
+        avatarUploadSeconds = AVATAR_UPLOAD_SECONDS.get();
     }
 }
