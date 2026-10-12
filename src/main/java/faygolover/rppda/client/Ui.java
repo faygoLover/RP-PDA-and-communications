@@ -240,23 +240,26 @@ public final class Ui {
         }
     }
 
-    /** Аватар: лицо персонажа, если игрок в сети; иначе буква на цветном квадрате. Система — звезда. */
+    /**
+     * Аватар: вид, выбранный в профиле ({@link Avatars}): лицо персонажа, если игрок в сети, или знаки (буква имени)
+     * на цвете (выбранном или по ID). Система — звезда.
+     */
     public static void avatar(GuiGraphics g, int x, int y, int size, @Nullable UUID owner, String name, int id) {
+        avatar(g, x, y, size, owner, name, id, Avatars.get(id));
+    }
+
+    /** То же с заданным видом (предпросмотр на странице «Аватарка»). */
+    public static void avatar(GuiGraphics g, int x, int y, int size, @Nullable UUID owner, String name, int id, Avatars.Style st) {
+        String mark = st.mark().isEmpty() ? (name.isEmpty() ? "?" : name.substring(0, name.offsetByCodePoints(0, 1))) : st.mark();
+        Font font = Minecraft.getInstance().font;
         if (retro) {
-            // Люминофор одноцветный: рамка и буква (у Системы — звезда).
+            // Люминофор одноцветный: рамка и знаки (у Системы — звезда).
             g.renderOutline(x, y, size, size, DIM);
             if (id == 0 && owner == null) {
                 icon(g, Icon.SYSTEM, x + 1, y + 1, size - 2, TEXT);
                 return;
             }
-            Font font = Minecraft.getInstance().font;
-            String letter = name.isEmpty() ? "?" : up(name.substring(0, name.offsetByCodePoints(0, 1)));
-            float scale = size >= 24 ? 2f : 1f;
-            g.pose().pushPose();
-            g.pose().translate(x + size / 2f, y + size / 2f, 0);
-            g.pose().scale(scale, scale, 1);
-            g.drawString(font, letter, -font.width(letter) / 2, -4, TEXT, false);
-            g.pose().popPose();
+            mark(g, font, up(mark), x, y, size, size >= 24 ? 2f : 1f, TEXT);
             return;
         }
         if (id == 0 && owner == null) {
@@ -265,22 +268,27 @@ public final class Ui {
             return;
         }
         Minecraft mc = Minecraft.getInstance();
-        if (owner != null && mc.getConnection() != null) {
+        if (st.mode() == 0 && owner != null && mc.getConnection() != null) {
             PlayerInfo info = mc.getConnection().getPlayerInfo(owner);
             if (info != null) {
                 PlayerFaceRenderer.draw(g, info.getSkinLocation(), x, y, size);
                 return;
             }
         }
+        Integer chosen = Avatars.color(st);
         int hue = Math.floorMod(id * 2654435761L >>> 8, 360);
-        g.fill(x, y, x + size, y + size, 0xFF000000 | hsv(hue, 0.45f, 0.62f));
-        String letter = name.isEmpty() ? "?" : name.substring(0, name.offsetByCodePoints(0, 1)).toUpperCase();
-        Font font = mc.font;
-        float scale = size / 16f;
+        g.fill(x, y, x + size, y + size, chosen != null ? chosen : 0xFF000000 | hsv(hue, 0.45f, 0.62f));
+        mark(g, font, st.mark().isEmpty() ? mark.toUpperCase() : mark, x, y, size, size / 16f, 0xFFFFFFFF);
+    }
+
+    /** Знаки по центру квадрата; два широких — мельче, чтобы влезли. */
+    private static void mark(GuiGraphics g, Font font, String text, int x, int y, int size, float scale, int color) {
+        int w = Math.max(1, font.width(text));
+        scale = Math.min(scale, (size - 2) / (float) w);
         g.pose().pushPose();
         g.pose().translate(x + size / 2f, y + size / 2f, 0);
         g.pose().scale(scale, scale, 1);
-        g.drawString(font, letter, -font.width(letter) / 2, -4, 0xFFFFFFFF, false);
+        g.drawString(font, text, -w / 2, -4, color, false);
         g.pose().popPose();
     }
 

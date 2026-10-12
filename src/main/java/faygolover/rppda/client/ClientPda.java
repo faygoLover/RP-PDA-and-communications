@@ -26,6 +26,7 @@ public final class ClientPda {
                 Component c = Component.Serializer.fromJson(d.getString("c"));
                 if (c != null) mc.gui.getChat().addMessage(c, null, TAG);
             }
+            case "avatars" -> Avatars.receive(d);
             case "close" -> {
                 if (mc.screen instanceof PdaScreen) mc.setScreen(null);
             }
@@ -51,5 +52,6 @@ public final class ClientPda {
     static void reset() {
         unread = 0;
         hasActive = false;
+        Avatars.reset(true);
     }
 }

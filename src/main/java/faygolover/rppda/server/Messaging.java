@@ -226,7 +226,7 @@ public final class Messaging {
             Chat c = store.chat(id);
             if (c != null && a.notify(id) != Account.Notify.NONE) n += unread(store, a, c, cut);
         }
-        return n + a.invites.size();
+        return n + a.invites.size() + Nearby.count(a.id);
     }
 
     private static int unread(PdaStore store, Account a, Chat c, long cut) {

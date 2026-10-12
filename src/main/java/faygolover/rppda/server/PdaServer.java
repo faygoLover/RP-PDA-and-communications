@@ -137,6 +137,7 @@ public final class PdaServer {
         failed.clear();
         lockoutUntil.clear();
         Messaging.reset();
+        Nearby.reset();
         if (io != null) io.shutdown();
         io = null;
     }
@@ -152,6 +153,7 @@ public final class PdaServer {
         ticks++;
         if (ticks % PdaConfig.checkTicks == 0) for (ServerPlayer sp : server.getPlayerList().getPlayers()) scan(sp);
         if (ticks % PdaConfig.nameTicks == 0) refreshNames();
+        if (ticks % 20 == 0) Nearby.tick();
         if (ticks % (PdaConfig.archiveMinutes * 1200L) == 0) {
             int moved = store.archiveOld();
             if (moved > 0) RpPda.LOGGER.info("RP PDA: в архив ушло кусков: {}", moved);
@@ -176,6 +178,7 @@ public final class PdaServer {
         Cipher.end(id);
         active.remove(id);
         failed.remove(id);
+        Nearby.forget(id);
     }
 
     private static void onDeath(LivingDeathEvent e) {

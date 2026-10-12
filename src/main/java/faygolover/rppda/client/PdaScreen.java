@@ -30,7 +30,7 @@ import java.util.UUID;
  * раздел. Кнопки — значки, название всплывает через секунду. Всё, что показывается, присылает сервер.
  */
 public class PdaScreen extends Screen {
-    enum Page { WAIT, REGISTER, LOCKED, CHATS, CHAT, CONTACTS, PROFILE, MEMBERS, SYS_ACCOUNTS, SYS_ACCOUNT, SYS_CHATS, SYS_LOG, LOOK, NOTES, NOTE, NOTE_SHARE, APP, PASSWORD, HACK, CIPHER, ENCRYPT }
+    enum Page { WAIT, REGISTER, LOCKED, CHATS, CHAT, CONTACTS, PROFILE, MEMBERS, SYS_ACCOUNTS, SYS_ACCOUNT, SYS_CHATS, SYS_LOG, LOOK, NOTES, NOTE, NOTE_SHARE, APP, PASSWORD, HACK, CIPHER, ENCRYPT, NEARBY, AVATAR }
 
     enum Prompt { NONE, NEW_DM, NEW_GROUP, NEW_CHANNEL, ADD_CONTACT, EDIT_LABEL, SET_PW, REMOVE_PW, RENAME_GROUP, INVITE, NPC, NPC_RENAME }
 
@@ -123,6 +123,16 @@ public class PdaScreen extends Screen {
     private final List<CompoundTag> chats = new ArrayList<>();
     private final List<CompoundTag> contacts = new ArrayList<>();
     private final List<CompoundTag> invites = new ArrayList<>();
+    /** Запросы обмена контактами рядом (§7.6) и кто рядом сейчас. */
+    private final List<CompoundTag> offers = new ArrayList<>();
+    private final List<CompoundTag> nearby = new ArrayList<>();
+    private boolean nearbyLoaded;
+    private int nearbyTicks;
+    /** Своя аватарка: что сейчас и правка на странице «Аватарка». */
+    private int meAv, meAvColor = -1, editAv, editAvColor = -1;
+    private String meAvMark = "", editAvMark = "";
+    @Nullable
+    private Ui.Box avMarkBox;
 
     // Открытый чат.
     @Nullable
@@ -262,6 +272,7 @@ public class PdaScreen extends Screen {
     public void removed() {
         if (work != null) work.fadeOut();
         work = null;
+        Avatars.reset(false);
         Ui.theme(false, false);
         super.removed();
     }
@@ -402,6 +413,13 @@ public class PdaScreen extends Screen {
                 }
             }
             case "goto" -> openChat(d.getCompound("row"), page == Page.SYS_ACCOUNT ? Page.SYS_ACCOUNT : Page.CHATS);
+            case "nearby" -> {
+                nearby.clear();
+                nearby.addAll(list(d, "list"));
+                for (CompoundTag c : nearby) Avatars.put(c);
+                nearbyLoaded = true;
+                if (page == Page.NEARBY) rebuild();
+            }
             case "members" -> {
                 members = d;
                 if (page == Page.MEMBERS) rebuild();
@@ -465,6 +483,10 @@ public class PdaScreen extends Screen {
         meName = me.getString("name");
         meKind = me.getString("kind");
         meOwner = me.hasUUID("owner") ? me.getUUID("owner") : null;
+        meAv = me.getInt("av");
+        meAvColor = me.contains("avColor") ? me.getInt("avColor") : -1;
+        meAvMark = me.getString("avMark");
+        Avatars.put(me);
         system = d.getBoolean("system");
         admin = d.getBoolean("admin");
         hasPw = d.getBoolean("pw");
@@ -481,6 +503,10 @@ public class PdaScreen extends Screen {
         contacts.addAll(list(d, "contacts"));
         invites.clear();
         invites.addAll(list(d, "invites"));
+        offers.clear();
+        offers.addAll(list(d, "offers"));
+        for (CompoundTag c : contacts) Avatars.put(c);
+        for (CompoundTag c : offers) Avatars.put(c);
         if (chatRow != null) {
             boolean still = false;
             for (CompoundTag r : chats) if (r.getInt("id") == chatRow.getInt("id")) still = true;
@@ -541,6 +567,11 @@ public class PdaScreen extends Screen {
             case SYS_CHATS -> send("sys.chats", t -> {});
             case SYS_LOG -> send("sys.log", t -> {});
             case NOTES -> send("notes.list", t -> {});
+            case NEARBY -> {
+                nearbyLoaded = false;
+                nearbyTicks = 0;
+                send("nearby", t -> {});
+            }
             default -> {}
         }
         // Ушли с «Внешнего вида» (предпросмотр) — вернуть вид этого КПК.
@@ -552,7 +583,8 @@ public class PdaScreen extends Screen {
         clearWidgets();
         if (noteTitleField != null) noteTitle = noteTitleField.getValue();
         if (noteArea != null && noteEdit) noteText = noteArea.getValue();
-        promptA = promptB = input = password = search = modelBox = npcBox = null;
+        if (avMarkBox != null) editAvMark = avMarkBox.getValue();
+        promptA = promptB = input = password = search = modelBox = npcBox = avMarkBox = null;
         noteTitleField = null;
         noteArea = null;
         pwOld = pwNew = lockField = null;
@@ -616,7 +648,15 @@ public class PdaScreen extends Screen {
                 toolbarButton(1, Icon.GROUP, "rppda.btn.new_group", () -> openPrompt(Prompt.NEW_GROUP, 0));
                 toolbarButton(2, Icon.MESSAGE, "rppda.btn.new_dm", () -> openPrompt(Prompt.NEW_DM, 0));
             }
-            case CONTACTS -> toolbarButton(0, Icon.PERSON_ADD, "rppda.btn.add_contact", () -> openPrompt(Prompt.ADD_CONTACT, 0));
+            case CONTACTS -> {
+                toolbarButton(0, Icon.PERSON_ADD, "rppda.btn.add_contact", () -> openPrompt(Prompt.ADD_CONTACT, 0));
+                if (!system) toolbarButton(1, Icon.SIGNAL, "rppda.btn.nearby", () -> setPage(Page.NEARBY));
+            }
+            case NEARBY -> {
+                addRenderableWidget(new IconButton(cx, cy, Icon.BACK, Component.translatable("rppda.btn.back"), b -> setPage(Page.CONTACTS)));
+                toolbarButton(0, Icon.REFRESH, "rppda.btn.refresh", () -> send("nearby", t -> {}));
+            }
+            case AVATAR -> avatarWidgets();
             case CHAT -> chatWidgets();
             case MEMBERS -> membersWidgets();
             case PROFILE -> profileWidgets();
@@ -857,6 +897,8 @@ public class PdaScreen extends Screen {
                 Component.translatable(silent ? "rppda.btn.sound_on" : "rppda.btn.sound_off"),
                 b -> send("profile.silent", t -> t.putBoolean("on", !silent)));
         addRenderableWidget(snd);
+        if (!meKind.equals("SYSTEM"))
+            addRenderableWidget(new IconButton(bx, by + 2 * st, Icon.BRUSH, Component.translatable("rppda.btn.avatar"), b -> openAvatar()));
     }
 
     private void sysAccountWidgets() {
@@ -1260,6 +1302,8 @@ public class PdaScreen extends Screen {
                 case NOTES -> renderNotes(g, mx, my);
                 case NOTE -> renderNote(g);
                 case NOTE_SHARE -> renderNoteShare(g, mx, my);
+                case NEARBY -> renderNearby(g, mx, my);
+                case AVATAR -> renderAvatar(g);
                 case APP -> {
                     if (app != null) app.render(g, mx, my, pt);
                 }
@@ -1425,9 +1469,14 @@ public class PdaScreen extends Screen {
         title(g, Component.translatable("rppda.page.chats"), 4);
         List<Object> rows = new ArrayList<>();
         rows.addAll(invites);
+        rows.addAll(offers);
         rows.addAll(chats);
         list(g, mx, my, rows, 24, "chat", (gg, it, y, hover) -> {
             CompoundTag r = (CompoundTag) it;
+            if (r.getBoolean("offer")) {
+                drawOffer(gg, r, y);
+                return;
+            }
             if (r.contains("from")) {
                 drawInvite(gg, r, y, hover);
                 return;
@@ -1435,8 +1484,21 @@ public class PdaScreen extends Screen {
             drawChatRow(gg, r, y);
         }, (it, y) -> {
             CompoundTag r = (CompoundTag) it;
-            if (!r.contains("from")) openChat(r, Page.CHATS);
+            if (!r.contains("from") && !r.getBoolean("offer")) openChat(r, Page.CHATS);
         });
+    }
+
+    /** Запрос обмена контактами рядом: принять / отказать. */
+    private void drawOffer(GuiGraphics g, CompoundTag r, int y) {
+        int id = r.getInt("id");
+        g.fill(cx, y + 1, cx + 2, y + 23, Ui.GOLD);
+        Ui.avatar(g, cx + 4, y + 4, 16, r.hasUUID("owner") ? r.getUUID("owner") : null, r.getString("name"), id);
+        txt(g, fit(r.getString("name"), cw - 80), cx + 24, y + 3, Ui.TEXT, false);
+        txt(g, fit(Component.translatable("rppda.offer.row").getString(), cw - 80), cx + 24, y + 13, Ui.GOLD, false);
+        rowIcon(g, cx + cw - 34, y + 6, Icon.CHECK, "rppda.btn.offer_accept", "oacc" + id, Ui.GREEN,
+                () -> send("nearby.accept", t -> t.putInt("id", id)));
+        rowIcon(g, cx + cw - 17, y + 6, Icon.CLOSE, "rppda.btn.decline", "odec" + id, Ui.RED,
+                () -> send("nearby.decline", t -> t.putInt("id", id)));
     }
 
     private void drawInvite(GuiGraphics g, CompoundTag r, int y, boolean hover) {
@@ -1726,7 +1788,13 @@ public class PdaScreen extends Screen {
 
     private void renderContacts(GuiGraphics g, int mx, int my) {
         title(g, Component.translatable("rppda.page.contacts"), 4);
-        list(g, mx, my, contacts, 22, "contact", (gg, c, y, hover) -> {
+        List<CompoundTag> rows = new ArrayList<>(offers);
+        rows.addAll(contacts);
+        list(g, mx, my, rows, 22, "contact", (gg, c, y, hover) -> {
+            if (c.getBoolean("offer")) {
+                drawOffer(gg, c, y - 1);
+                return;
+            }
             int id = c.getInt("id");
             String label = c.getString("label");
             String name = c.getString("name");
@@ -1755,6 +1823,120 @@ public class PdaScreen extends Screen {
             ix -= 15;
             rowIcon(gg, ix, y + 5, Icon.MESSAGE, "rppda.btn.write", "cms" + id, Ui.ACCENT, () -> send("dm", t -> t.putInt("id", id)));
         }, null);
+    }
+
+    /** «Рядом»: игроки с рабочим КПК поблизости; строка — предложить обмен контактами. */
+    private void renderNearby(GuiGraphics g, int mx, int my) {
+        title(g, Component.translatable("rppda.page.nearby"), 22);
+        if (!nearbyLoaded) {
+            txt(g, Component.translatable("rppda.screen.loading"), cx + 6, listTop() + 6, Ui.DIM, false);
+            return;
+        }
+        list(g, mx, my, nearby, 22, "near", (gg, c, y, hover) -> {
+            int id = c.getInt("id");
+            String name = c.getString("name");
+            Ui.avatar(gg, cx + 4, y + 3, 16, c.hasUUID("owner") ? c.getUUID("owner") : null, name, id);
+            txt(gg, fit(name, cw - 120), cx + 24, y + 2, Ui.TEXT, false);
+            txt(gg, Ui.formatId(id), cx + 24, y + 12, Ui.DIM, false);
+            String st = c.getBoolean("known") ? "rppda.nearby.known" : c.getBoolean("sent") ? "rppda.nearby.sent" : null;
+            if (st != null) {
+                String l = Ui.up(Component.translatable(st).getString());
+                txt(gg, l, cx + cw - 6 - font.width(l), y + 7, c.getBoolean("known") ? Ui.DIM : Ui.GOLD, false);
+            } else rowIcon(gg, cx + cw - 17, y + 5, Icon.PERSON_ADD, "rppda.btn.offer", "noff" + id, Ui.ACCENT,
+                    () -> send("nearby.offer", t -> t.putInt("id", id)));
+        }, null);
+        if (nearby.isEmpty()) {
+            List<FormattedCharSequence> l = font.split(Component.literal(Ui.up(Component.translatable("rppda.nearby.empty").getString())), cw - 12);
+            int hy = listTop() + 20;
+            for (FormattedCharSequence line : l) {
+                txt(g, line, cx + 6, hy, Ui.HINT, false);
+                hy += 9;
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------- своя аватарка (§7.6)
+
+    private void openAvatar() {
+        editAv = meAv;
+        editAvColor = meAvColor;
+        editAvMark = meAvMark;
+        setPage(Page.AVATAR);
+    }
+
+    private void avatarWidgets() {
+        toolbarButton(0, Icon.CLOSE, "rppda.btn.cancel", () -> setPage(Page.PROFILE));
+        toolbarButton(1, Icon.CHECK, "rppda.btn.ok", () -> {
+            String mark = avMarkBox == null ? editAvMark : avMarkBox.getValue();
+            send("profile.avatar", t -> {
+                t.putInt("mode", editAv);
+                t.putInt("color", editAvColor);
+                t.putString("mark", mark);
+            });
+            setPage(Page.PROFILE);
+        });
+        avMarkBox = new Ui.Box(font, cx + 104, avatarMarkY(), 30, retro ? 10 : 14, Component.translatable("rppda.avatar.mark"));
+        avMarkBox.setMaxLength(4);
+        avMarkBox.setValue(editAvMark);
+        box(avMarkBox);
+        avMarkBox.setResponder(v -> editAvMark = v);
+        addRenderableWidget(avMarkBox);
+    }
+
+    /** Страница «Аватарка»: вид, цвета (переносятся по строкам), знаки. */
+    private int avatarColorsPerRow() {
+        return Math.max(4, (cw - 104 - 4) / 15);
+    }
+
+    private int avatarMarkY() {
+        int per = avatarColorsPerRow();
+        int rows = (Avatars.COLORS.length + 1 + per - 1) / per;
+        return cy + 44 + rows * 15 + 4;
+    }
+
+    private void renderAvatar(GuiGraphics g) {
+        title(g, Component.translatable("rppda.page.avatar"), 4);
+        String mark = avMarkBox == null ? editAvMark : avMarkBox.getValue();
+        Ui.avatar(g, cx + 6, cy + 24, 32, meOwner, meName, meId, new Avatars.Style(editAv, editAvColor, Avatars.cleanMark(mark)));
+        int lx = cx + 46, vx = cx + 104;
+        int y = cy + 26;
+        txt(g, Component.translatable("rppda.avatar.kind"), lx, y, Ui.DIM, false);
+        int x = vx;
+        x = chip(g, x, y, Component.translatable("rppda.avatar.face").getString(), editAv == 0, "avf", () -> {
+            editAv = 0;
+            rebuild();
+        });
+        chip(g, x, y, Component.translatable("rppda.avatar.letter").getString(), editAv == 1, "avl", () -> {
+            editAv = 1;
+            rebuild();
+        });
+        y = cy + 44;
+        txt(g, Component.translatable("rppda.avatar.color"), lx, y, Ui.DIM, false);
+        int per = avatarColorsPerRow();
+        for (int i = -1; i < Avatars.COLORS.length; i++) {
+            int n = i + 1, bx = vx + (n % per) * 15, by = y - 2 + (n / per) * 15;
+            int c = i;
+            if (i < 0) {
+                g.renderOutline(bx + 1, by + 1, 10, 10, Ui.DIM);
+                txt(g, "A", bx + 4, by + 2, Ui.TEXT, false);
+            } else if (retro) {
+                g.renderOutline(bx + 1, by + 1, 10, 10, Ui.DIM);
+                g.fill(bx + 3, by + 3, bx + 9, by + 9, Ui.DIM);
+            } else g.fill(bx + 1, by + 1, bx + 11, by + 11, Avatars.COLORS[i]);
+            if (editAvColor == c) g.renderOutline(bx - 1, by - 1, 14, 14, Ui.TEXT);
+            hots.add(new Hot(bx - 1, by - 1, 14, 14, "avc" + i,
+                    Component.translatable(i < 0 ? "rppda.avatar.color_auto" : "rppda.avatar.color_n", n), () -> editAvColor = c));
+        }
+        int my0 = avatarMarkY();
+        txt(g, Component.translatable("rppda.avatar.mark"), lx, my0 + (retro ? 1 : 3), Ui.DIM, false);
+        List<FormattedCharSequence> hint = font.split(Component.literal(Ui.up(Component.translatable(
+                retro ? "rppda.avatar.hint_retro" : "rppda.avatar.hint").getString())), cw - 12);
+        int hy = my0 + 22;
+        for (FormattedCharSequence l : hint) {
+            if (hy + 9 > cy + ch) break;
+            txt(g, l, cx + 6, hy, Ui.HINT, false);
+            hy += 9;
+        }
     }
 
     private void renderMembers(GuiGraphics g, int mx, int my) {
@@ -1810,8 +1992,13 @@ public class PdaScreen extends Screen {
         txt(g, pw, cx + 6 + (hasPw ? 62 : 22), by + 5, hasPw ? Ui.GREEN : Ui.DIM, false);
         Component snd = Component.translatable(silent ? "rppda.profile.silent" : "rppda.profile.sound");
         txt(g, snd, cx + 28, by + st + 5, Ui.DIM, false);
+        int rows = 2;
+        if (!meKind.equals("SYSTEM")) {
+            txt(g, Component.translatable(meAv == 1 ? "rppda.profile.avatar_letter" : "rppda.profile.avatar_face"), cx + 28, by + 2 * st + 5, Ui.DIM, false);
+            rows = 3;
+        }
         List<FormattedCharSequence> hint = font.split(Component.literal(Ui.up(Component.translatable("rppda.profile.hint").getString())), cw - 12);
-        int hy = by + 2 * st + 4;
+        int hy = by + rows * st + 4;
         for (FormattedCharSequence l : hint) {
             if (hy + 9 > cy + ch) break;
             txt(g, l, cx + 6, hy, Ui.HINT, false);
@@ -1929,7 +2116,7 @@ public class PdaScreen extends Screen {
 
     private List<EditBox> framedBoxes() {
         List<EditBox> out = new ArrayList<>();
-        for (EditBox b : new EditBox[]{password, search, promptA, promptB, modelBox, npcBox}) if (b != null) out.add(b);
+        for (EditBox b : new EditBox[]{password, search, promptA, promptB, modelBox, npcBox, avMarkBox}) if (b != null) out.add(b);
         return out;
     }
 
@@ -1985,7 +2172,7 @@ public class PdaScreen extends Screen {
 
     private boolean canGoBack() {
         return prompt != Prompt.NONE || page == Page.CHAT || page == Page.MEMBERS || page == Page.SYS_ACCOUNT || page == Page.LOOK
-                || page == Page.NOTE || page == Page.NOTE_SHARE || page == Page.PASSWORD;
+                || page == Page.NOTE || page == Page.NOTE_SHARE || page == Page.PASSWORD || page == Page.NEARBY || page == Page.AVATAR;
     }
 
     private void goBack() {
@@ -2004,7 +2191,8 @@ public class PdaScreen extends Screen {
             case LOOK -> cancelLook();
             case NOTE -> setPage(Page.NOTES);
             case NOTE_SHARE -> setPage(Page.NOTE);
-            case PASSWORD -> setPage(Page.PROFILE);
+            case PASSWORD, AVATAR -> setPage(Page.PROFILE);
+            case NEARBY -> setPage(Page.CONTACTS);
             default -> {}
         }
     }
@@ -2582,6 +2770,9 @@ public class PdaScreen extends Screen {
     @Override
     public void tick() {
         super.tick();
+        Avatars.flush();
+        // «Рядом»: люди ходят — список заново раз в 2 с.
+        if (page == Page.NEARBY && ++nearbyTicks % 40 == 0) send("nearby", t -> {});
         // Галочка «Сохранено» — 2 секунды, потом снова карандаш.
         if (noteSavedAt > 0 && System.currentTimeMillis() - noteSavedAt > 2000) {
             noteSavedAt = 0;

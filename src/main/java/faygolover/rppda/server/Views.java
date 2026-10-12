@@ -96,6 +96,7 @@ public final class Views {
             invites.add(ct);
         }
         t.put("invites", invites);
+        if (!s.system) t.put("offers", Nearby.rows(store, a));
         t.putInt("unread", Messaging.unreadTotal(store, a, s.system ? Long.MAX_VALUE : cut));
         Net.send(sp, "state", t);
     }
@@ -106,6 +107,15 @@ public final class Views {
         t.putString("name", a.name);
         t.putString("kind", a.kind.name());
         if (a.owner != null) t.putUUID("owner", a.owner);
+        avatar(a, t);
+        return t;
+    }
+
+    /** Вид аватарки учётки (клиент рисует сам; лицо со скина — по {@code owner}). */
+    static CompoundTag avatar(Account a, CompoundTag t) {
+        t.putInt("av", a.avatar);
+        t.putInt("avColor", a.avatarColor);
+        t.putString("avMark", a.avatarMark);
         return t;
     }
 

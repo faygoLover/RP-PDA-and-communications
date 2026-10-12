@@ -400,8 +400,43 @@ public final class Actions {
                 store.markAccounts();
                 Views.sendState(sp, s);
             }
+            case "profile.avatar" -> {
+                // Системный КПК в своей учётке (Система) аватарку не меняет; ГМ в чужой учётке — может.
+                if (me.kind == Account.Kind.SYSTEM) return;
+                int mode = d.getInt("mode");
+                if (mode != Account.AV_FACE && mode != Account.AV_LETTER) return;
+                int color = d.getInt("color");
+                me.avatar = mode;
+                me.avatarColor = color >= 0 && color < Account.AV_COLORS ? color : -1;
+                me.avatarMark = avatarMark(d.getString("mark"));
+                store.markAccounts();
+                Views.sendState(sp, s);
+            }
+            case "avatar.get" -> {
+                ListTag l = new ListTag();
+                int[] ids = d.getIntArray("ids");
+                for (int i = 0; i < ids.length && i < 64; i++) {
+                    // Нет учётки или удалена — вид по умолчанию (клиент перестанет спрашивать).
+                    Account a = store.accountAny(ids[i]);
+                    CompoundTag e = a == null || a.deleted ? new CompoundTag() : Views.avatar(a, new CompoundTag());
+                    e.putInt("id", ids[i]);
+                    l.add(e);
+                }
+                CompoundTag t = new CompoundTag();
+                t.put("list", l);
+                Net.send(sp, "avatars", t);
+            }
+            case "nearby", "nearby.offer", "nearby.accept", "nearby.decline" -> Nearby.handle(sp, s, store, me, op, d);
             default -> {}
         }
+    }
+
+    /** Знаки аватарки: 1–2 видимых символа, без кодов форматирования. */
+    static String avatarMark(String raw) {
+        StringBuilder b = new StringBuilder();
+        raw.strip().codePoints().filter(cp -> cp != '§' && !Character.isISOControl(cp) && !Character.isWhitespace(cp)
+                && Character.getType(cp) != Character.FORMAT).limit(2).forEach(b::appendCodePoint);
+        return b.toString();
     }
 
     private static boolean canRead(PdaServer.Session s, Account me, Chat c) {

@@ -62,6 +62,13 @@ public final class Account {
     public long hackTime;
     /** Попытки взлома кончились: эта выдача КПК мертва до перевыпуска ГМом. */
     public boolean burned;
+    /** Аватарка: вид ({@link #AV_FACE}, {@link #AV_LETTER}), цвет из палитры (−1 — по ID), 1–2 знака (пусто — буква имени). */
+    public int avatar = AV_FACE;
+    public int avatarColor = -1;
+    public String avatarMark = "";
+
+    public static final int AV_FACE = 0, AV_LETTER = 1;
+    public static final int AV_COLORS = 12;
 
     public Account(int id, Kind kind, String name) {
         this.id = id;
@@ -121,6 +128,9 @@ public final class Account {
             t.putLong("hackTime", hackTime);
         }
         if (burned) t.putBoolean("burned", true);
+        if (avatar != AV_FACE) t.putInt("av", avatar);
+        if (avatarColor >= 0) t.putInt("avColor", avatarColor);
+        if (!avatarMark.isEmpty()) t.putString("avMark", avatarMark);
         return t;
     }
 
@@ -168,6 +178,9 @@ public final class Account {
         a.hackNotice = t.getInt("hackNotice");
         a.hackTime = t.getLong("hackTime");
         a.burned = t.getBoolean("burned");
+        a.avatar = t.getInt("av");
+        a.avatarColor = t.contains("avColor") ? t.getInt("avColor") : -1;
+        a.avatarMark = t.getString("avMark");
         return a;
     }
 }
