@@ -33,7 +33,6 @@ public final class ClientSetup {
         MinecraftForge.EVENT_BUS.addListener(ClientSetup::onLogout);
         MinecraftForge.EVENT_BUS.addListener(net.minecraftforge.eventbus.api.EventPriority.HIGHEST, ClientSetup::onScreenKey);
         MinecraftForge.EVENT_BUS.addListener(net.minecraftforge.eventbus.api.EventPriority.HIGHEST, ClientSetup::onScreenKeyUp);
-        if (Boolean.getBoolean("rppda.devshot")) DevShots.init();
     }
 
     private static void setup(FMLClientSetupEvent e) {

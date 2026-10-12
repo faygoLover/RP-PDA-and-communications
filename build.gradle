@@ -36,8 +36,6 @@ minecraft {
             property 'forge.logging.markers', 'REGISTRIES'
             property 'forge.logging.console.level', 'debug'
             jvmArg '-Dfile.encoding=UTF-8'
-            if (project.hasProperty('devshot')) jvmArg '-Drppda.devshot=true'
-            if (project.hasProperty('devshot') && project.hasProperty('world')) jvmArg '-Drppda.devshot.world=true'
             property 'mixin.env.remapRefMap', 'true'
             property 'mixin.env.refMapRemappingFile', "${projectDir}/build/createSrgToMcp/output.srg"
 
@@ -147,6 +145,9 @@ tasks.named('jar', Jar).configure {
                 'MixinConfigs'            : "${mod_id}.mixins.json"
         ])
     }
+
+    // В сборку для игроков не идут игровые тесты, их площадка и доступ тестов к речи.
+    exclude 'faygolover/rppda/gametest/**', 'faygolover/rppda/server/ChatInterceptAccess*', 'data/rppda/structures/**'
 
     finalizedBy 'reobfJar'
 }

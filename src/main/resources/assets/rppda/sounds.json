@@ -1,6 +1,97 @@
 {
   "notify": {
     "subtitle": "subtitles.rppda.notify",
-    "sounds": [{ "name": "minecraft:block.note_block.chime", "type": "event", "pitch": 1.6, "volume": 0.8 }]
+    "sounds": [
+      {
+        "name": "minecraft:block.note_block.chime",
+        "type": "event",
+        "pitch": 1.6,
+        "volume": 0.8
+      }
+    ]
+  },
+  "pda.press": {
+    "sounds": [
+      {
+        "name": "rppda:pda/press"
+      }
+    ]
+  },
+  "pda.cancel": {
+    "sounds": [
+      {
+        "name": "rppda:pda/cancel"
+      }
+    ]
+  },
+  "pda.select": {
+    "sounds": [
+      {
+        "name": "rppda:pda/select"
+      }
+    ]
+  },
+  "pda.page": {
+    "sounds": [
+      {
+        "name": "rppda:pda/page"
+      }
+    ]
+  },
+  "pda.focus": {
+    "sounds": [
+      {
+        "name": "rppda:pda/focus"
+      }
+    ]
+  },
+  "pda.click": {
+    "sounds": [
+      {
+        "name": "rppda:pda/click"
+      }
+    ]
+  },
+  "pda.good": {
+    "sounds": [
+      {
+        "name": "rppda:pda/good"
+      }
+    ]
+  },
+  "pda.bad": {
+    "sounds": [
+      {
+        "name": "rppda:pda/bad"
+      }
+    ]
+  },
+  "pda.done": {
+    "sounds": [
+      {
+        "name": "rppda:pda/done"
+      }
+    ]
+  },
+  "pda.insert": {
+    "sounds": [
+      {
+        "name": "rppda:pda/insert"
+      }
+    ]
+  },
+  "pda.work": {
+    "sounds": [
+      {
+        "name": "rppda:pda/work"
+      }
+    ]
+  },
+  "pda.select_retro": {
+    "sounds": [
+      {
+        "name": "rppda:pda/select_retro"
+      }
+    ]
   }
 }

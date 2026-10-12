@@ -337,12 +337,22 @@ def i_note(d):
     d.line([(18, 38), (32, 38)], fill=255, width=W - 2)
 
 
+def i_save(d):
+    # Дискета: корпус со срезанным углом, шторка сверху, наклейка снизу.
+    d.polygon([(6, 6), (48, 6), (58, 16), (58, 58), (6, 58)], outline=255, width=W)
+    d.rectangle([18, 6, 42, 24], outline=255, width=W - 1)
+    d.rectangle([32, 11, 37, 19], fill=255)
+    d.rectangle([16, 36, 48, 58], fill=255)
+    d.rectangle([22, 42, 42, 44], fill=0)
+    d.rectangle([22, 49, 42, 51], fill=0)
+
+
 ICONS = [i_chats, i_contacts, i_profile, i_lock, i_unlock, i_close, i_back, i_send,
          i_plus, i_group, i_channel, i_bell, i_pda_only, i_mute, i_members, i_leave,
          i_kick, i_crown, i_reply, i_trash, i_copy, i_key, i_silent, i_sound,
          i_accounts, i_log, i_switch, i_give, i_teleport, i_edit, i_block, i_check,
          i_search, i_message, i_pda, i_refresh, i_person_add, i_system, i_globe, i_eye,
-         i_brush, i_signal, i_no_signal, i_mask, i_note]
+         i_brush, i_signal, i_no_signal, i_mask, i_note, i_save]
 
 
 def atlas():

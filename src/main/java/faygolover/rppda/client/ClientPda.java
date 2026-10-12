@@ -29,7 +29,7 @@ public final class ClientPda {
             case "close" -> {
                 if (mc.screen instanceof PdaScreen) mc.setScreen(null);
             }
-            case "register", "locked", "state" -> {
+            case "register", "locked", "state", "hack", "cipher" -> {
                 PdaScreen s = mc.screen instanceof PdaScreen p ? p : null;
                 if (s == null) {
                     s = new PdaScreen();

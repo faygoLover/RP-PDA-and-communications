@@ -27,6 +27,10 @@ public final class PdaConfig {
     private static final ForgeConfigSpec.IntValue LOCKOUT_SECONDS;
     private static final ForgeConfigSpec.DoubleValue SOUND_VOLUME;
     private static final ForgeConfigSpec.ConfigValue<String> STYLE;
+    private static final ForgeConfigSpec.IntValue HACK_ATTEMPTS;
+    private static final ForgeConfigSpec.IntValue DECRYPTOR_CHARGES;
+    private static final ForgeConfigSpec.IntValue DECRYPTOR_COOLDOWN;
+    private static final ForgeConfigSpec.IntValue CIPHER_SECONDS;
 
     public static boolean chatToPda = false;
     public static int chatRadius = 16;
@@ -48,6 +52,10 @@ public final class PdaConfig {
     public static double soundVolume = 0.7;
     /** Вид КПК, которому при выдаче не задан свой: "retro" или "modern". */
     public static String style = "retro";
+    public static int hackAttempts = 4;
+    public static int decryptorCharges = 4;
+    public static int decryptorCooldown = 10;
+    public static int cipherSeconds = 60;
 
     static {
         ForgeConfigSpec.Builder b = new ForgeConfigSpec.Builder();
@@ -97,6 +105,16 @@ public final class PdaConfig {
         PASSWORD_ATTEMPTS = b.comment("Неверных паролей подряд до паузы.").defineInRange("password_attempts", 5, 1, 100);
         LOCKOUT_SECONDS = b.comment("Пауза после неверных паролей, секунд.").defineInRange("lockout_seconds", 60, 0, 3600);
         b.pop();
+        b.push("hacking");
+        HACK_ATTEMPTS = b.comment("Взлом КПК отмычкой: попыток до блокировки КПК (ошибки помнит КПК, не отмычка).")
+                .defineInRange("hack_attempts", 4, 1, 10);
+        DECRYPTOR_CHARGES = b.comment("Зарядов у нового дешифратора (шифрование или расшифровка заметки — 1 заряд).")
+                .defineInRange("decryptor_charges", 4, 1, 64);
+        DECRYPTOR_COOLDOWN = b.comment("После каждого заряда дешифратор перегенерирует матрицу столько минут.")
+                .defineInRange("decryptor_cooldown_minutes", 10, 0, 1440);
+        CIPHER_SECONDS = b.comment("Расшифровка заметки: секунд на матрицу (отсчёт с первого выбора).")
+                .defineInRange("decrypt_seconds", 60, 10, 600);
+        b.pop();
         b.push("storage");
         ARCHIVE_MINUTES = b.comment("Как часто (минуты) перекладывать старые сообщения в архив (и при сохранении мира).")
                 .defineInRange("archive_interval_minutes", 10, 1, 240);
@@ -124,5 +142,9 @@ public final class PdaConfig {
         lockoutSeconds = LOCKOUT_SECONDS.get();
         soundVolume = SOUND_VOLUME.get();
         style = STYLE.get();
+        hackAttempts = HACK_ATTEMPTS.get();
+        decryptorCharges = DECRYPTOR_CHARGES.get();
+        decryptorCooldown = DECRYPTOR_COOLDOWN.get();
+        cipherSeconds = CIPHER_SECONDS.get();
     }
 }

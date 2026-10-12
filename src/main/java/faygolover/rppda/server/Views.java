@@ -135,7 +135,8 @@ public final class Views {
             Message m = lastVisible(store, c, cut);
             int seq = m == null ? 0 : m.seq;
             t.putInt("unread", c.has(viewer.id) ? Math.max(0, seq - viewer.lastRead.getOrDefault(c.id, 0)) : 0);
-            t.putString("last", m == null || m.deleted() || m.has(Message.NOTICE) ? "" : m.text.length() > 60 ? m.text.substring(0, 60) + "…" : m.text);
+            String lt = m == null ? "" : m.has(Message.NOTE) ? "#note:" + noteTitle(m.text) : m.text;
+            t.putString("last", m == null || m.deleted() || m.has(Message.NOTICE) ? "" : lt.length() > 60 ? lt.substring(0, 60) + "…" : lt);
             t.putLong("time", m == null ? c.created : m.time);
             if (m != null && m.sender != 0) t.putString("lastFrom", nameFor(store, viewer, m.sender));
             else t.remove("lastFrom");
@@ -181,7 +182,9 @@ public final class Views {
         if (from != null && from.owner != null) t.putUUID("o", from.owner);
         t.putInt("fs", m.sender);
         t.putLong("t", m.time);
-        t.putString("x", m.deleted() && !s.system ? "" : m.text);
+        // Заметка в чате — только название (прочитать — добавить себе); текст не уходит клиенту.
+        String x = m.has(Message.NOTE) ? noteTitle(m.text) : m.text;
+        t.putString("x", m.deleted() && !s.system ? "" : x);
         t.putInt("fl", m.flags);
         if (m.gm != null && s.system) t.putString("g", m.gm);
         if (m.replyTo > 0) {
@@ -190,10 +193,16 @@ public final class Views {
             Message r = log.find(m.replyTo);
             if (r != null) {
                 t.putString("rn", r.sender == 0 ? store.system().name : nameFor(store, viewer, r.sender));
-                t.putString("rx", r.deleted() && !s.system ? "" : cut(r.text));
+                t.putString("rx", r.deleted() && !s.system ? "" : cut(r.has(Message.NOTE) ? noteTitle(r.text) : r.text));
             }
         }
         return t;
+    }
+
+    /** Заметка в сообщении хранится «название\nтекст». */
+    public static String noteTitle(String raw) {
+        int nl = raw.indexOf('\n');
+        return nl < 0 ? raw : raw.substring(0, nl);
     }
 
     private static String cut(String s) {

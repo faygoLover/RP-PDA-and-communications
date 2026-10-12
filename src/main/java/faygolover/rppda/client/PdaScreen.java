@@ -3,11 +3,11 @@ package faygolover.rppda.client;
 import com.mojang.blaze3d.platform.InputConstants;
 import faygolover.rppda.client.Ui.Icon;
 import faygolover.rppda.client.Ui.IconButton;
+import faygolover.rppda.server.Cipher;
+import faygolover.rppda.server.Hack;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.sounds.SoundEvents;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
@@ -30,7 +30,7 @@ import java.util.UUID;
  * раздел. Кнопки — значки, название всплывает через секунду. Всё, что показывается, присылает сервер.
  */
 public class PdaScreen extends Screen {
-    enum Page { WAIT, REGISTER, LOCKED, CHATS, CHAT, CONTACTS, PROFILE, MEMBERS, SYS_ACCOUNTS, SYS_ACCOUNT, SYS_CHATS, SYS_LOG, LOOK, NOTES, NOTE, NOTE_SHARE, APP }
+    enum Page { WAIT, REGISTER, LOCKED, CHATS, CHAT, CONTACTS, PROFILE, MEMBERS, SYS_ACCOUNTS, SYS_ACCOUNT, SYS_CHATS, SYS_LOG, LOOK, NOTES, NOTE, NOTE_SHARE, APP, PASSWORD, HACK, CIPHER, ENCRYPT }
 
     enum Prompt { NONE, NEW_DM, NEW_GROUP, NEW_CHANNEL, ADD_CONTACT, EDIT_LABEL, SET_PW, REMOVE_PW, RENAME_GROUP, INVITE, NPC, NPC_RENAME }
 
@@ -56,9 +56,25 @@ public class PdaScreen extends Screen {
     private String noteTitle = "", noteText = "";
     private long noteDeleteArmed;
     @Nullable
-    private EditBox noteTitleBox, npcBox;
+    private EditBox npcBox;
+    /** Заметка: просмотр или правка (карандаш → дискета → галочка на 2 с); полученная — только чтение. */
+    private boolean noteEdit, noteRo, noteLocked, noteCipher;
+    private int noteOpened;
+    private String noteBaseTitle = "", noteBaseText = "";
+    private long noteSavedAt;
     @Nullable
-    private net.minecraft.client.gui.components.MultiLineEditBox noteBody;
+    private Field noteTitleField;
+    @Nullable
+    private NoteArea noteArea;
+    /** Уход с несохранённой заметки — ждёт подтверждения. */
+    @Nullable
+    private Runnable pendingLeave;
+    private boolean leaving;
+    /** Пароль: отдельный экран, как разблокировка. */
+    private enum PwMode { SET, CHANGE, REMOVE }
+    private PwMode pwMode = PwMode.SET;
+    @Nullable
+    private Field pwOld, pwNew, lockField;
     /** Удаление учётки в системном КПК: сколько раз подтверждено. */
     private int deleteArmId, deleteClicks;
     private long deleteArmTime;
@@ -73,6 +89,25 @@ public class PdaScreen extends Screen {
     private boolean heldByMouse;
     private static final ResourceLocation VIGNETTE = new ResourceLocation(faygolover.rppda.RpPda.MODID, "textures/gui/crt_vignette.png");
     private Page chatReturn = Page.CHATS;
+
+    // Мини-игры: взлом отмычкой и расшифровка дешифратором.
+    /** Какое устройство вставлено в бок корпуса: 0 — нет, 1 — отмычка, 2 — дешифратор. */
+    private int inserted;
+    private long insertAt;
+    /** Взлом: сетка символов, слова/мусор; лог терминала; попытки. */
+    private char[] hackGrid = new char[0];
+    private final List<CompoundTag> hackLog = new ArrayList<>();
+    private int hackLeft, hackTotal;
+    private boolean hackOk, hackBurned;
+    /** Расшифровка: матрица 7×7, выбранные клетки, последовательности-части, буфер, таймер. */
+    private String[] cipMatrix = new String[0];
+    private final List<Integer> cipPicks = new ArrayList<>();
+    private final List<CompoundTag> cipSeqs = new ArrayList<>();
+    private int cipBuffer, cipSeconds, cipNote, cipCharges, cipHover = -1;
+    private boolean cipEnded;
+    /** Шифрование: анимация (~10 с), заметка и её маска. */
+    private int encNote, encCharges;
+    private String encMask = "";
 
     // Геометрия: корпус, экран, содержимое.
     private int x0, y0, w, h, sx, sy, sw, sh, cx, cy, cw, ch;
@@ -115,6 +150,10 @@ public class PdaScreen extends Screen {
     private String lockedName = "";
     private int lockedId;
     private long waitUntil;
+    /** Мёртвый КПК (попытки взлома кончились) и пометка о взломе владельцу (0 — нет, 1 — пытались, 2 — взломали). */
+    private boolean lockedBurned;
+    private int lockedHack;
+    private long lockedHackTime;
 
     // Ввод.
     private Prompt prompt = Prompt.NONE;
@@ -221,6 +260,8 @@ public class PdaScreen extends Screen {
 
     @Override
     public void removed() {
+        if (work != null) work.fadeOut();
+        work = null;
         Ui.theme(false, false);
         super.removed();
     }
@@ -246,14 +287,74 @@ public class PdaScreen extends Screen {
                 lockedName = d.getString("name");
                 lockedId = d.getInt("id");
                 waitUntil = System.currentTimeMillis() + d.getLong("wait");
+                lockedBurned = d.getBoolean("burned");
+                lockedHack = d.getInt("hack");
+                lockedHackTime = d.getLong("hackTime");
                 setPage(Page.LOCKED);
             }
             case "state" -> {
                 defaultStyle = d.getString("style");
                 readState(d);
                 refreshTheme();
-                if (page == Page.WAIT || page == Page.REGISTER || page == Page.LOCKED) setPage(Page.CHATS);
+                // После «Войти» во взломе сервер открывает КПК — уходим со страницы взлома к чатам.
+                if (page == Page.WAIT || page == Page.REGISTER || page == Page.LOCKED || page == Page.HACK) setPage(Page.CHATS);
+                else if (page == Page.PASSWORD) setPage(Page.PROFILE);
                 else rebuild();
+            }
+            case "hack" -> {
+                defaultStyle = d.getString("style");
+                look = faygolover.rppda.data.Look.load(d.getCompound("look"));
+                system = false;
+                lockedName = d.getString("name");
+                lockedId = d.getInt("id");
+                hackLog.clear();
+                readHack(d);
+                hackOk = hackBurned = hackGrantShown = false;
+                startInsert(1);
+                refreshTheme();
+                page = Page.HACK;
+                rebuild();
+            }
+            case "hack.state" -> {
+                if (page != Page.HACK) return;
+                readHack(d);
+                if (d.getBoolean("ok") && !hackOk) {
+                    hackOk = true;
+                    hackOkAt = System.currentTimeMillis();
+                    Sfx.play(Sfx.GOOD);
+                }
+                if (d.getBoolean("burned") && !hackBurned) hackBurned = true;
+                rebuild();
+            }
+            case "cipher" -> {
+                boolean fresh = d.getBoolean("new");
+                if (fresh) cipSeqs.clear();
+                readCipher(d);
+                if (fresh || page != Page.CIPHER) {
+                    startInsert(2);
+                    cipEnded = cipComplete = false;
+                }
+                if (d.getBoolean("end")) cipEnded = true;
+                if (d.getBoolean("complete") && !cipComplete) {
+                    cipComplete = true;
+                    cipStopAt = System.currentTimeMillis();
+                    Sfx.play(Sfx.DONE);
+                }
+                if (cipEnded) {
+                    // Расшифровка окончена (буфер кончился / время вышло) — назад к заметкам.
+                    setPage(Page.NOTES);
+                } else {
+                    page = Page.CIPHER;
+                    rebuild();
+                }
+            }
+            case "notes.encrypting" -> {
+                encNote = d.getInt("id");
+                encCharges = d.getInt("charges");
+                encMask = d.getString("mask");
+                startInsert(2);
+                page = Page.ENCRYPT;
+                rebuild();
             }
             case "history" -> {
                 if (chatRow == null || chatRow.getInt("id") != d.getInt("chat")) return;
@@ -321,10 +422,20 @@ public class PdaScreen extends Screen {
             case "notes" -> {
                 notes.clear();
                 notes.addAll(list(d, "list"));
+                // Открытая заметка (не в правке): обновить — например, расшифровали часть.
+                if (page == Page.NOTE && !noteEdit && noteId > 0) {
+                    for (CompoundTag n : notes) if (n.getInt("id") == noteId) readNote(n);
+                    rebuild();
+                }
             }
             case "notes.saved" -> {
                 noteId = d.getInt("id");
-                if (page == Page.NOTE) rebuild();
+                if (page == Page.NOTE) {
+                    noteEdit = false;
+                    for (CompoundTag n : notes) if (n.getInt("id") == noteId) readNote(n);
+                    noteSavedAt = System.currentTimeMillis();
+                    rebuild();
+                }
             }
             case "sys.log" -> {
                 sysLog.clear();
@@ -413,9 +524,15 @@ public class PdaScreen extends Screen {
     // ================================================================ разделы и кнопки
 
     void setPage(Page p) {
+        if (page == Page.NOTE && p != Page.NOTE && guardLeave(() -> setPage(p))) return;
+        if (page == Page.NOTE && p != Page.NOTE) {
+            noteEdit = false;
+            pendingLeave = null;
+        }
         if (page == Page.CHAT && p != Page.CHAT && p != Page.MEMBERS) ClientPda.send("chat.leave", new CompoundTag());
         if (page == Page.LOOK && p != Page.LOOK) editLook = null;
         if (page == Page.APP && p != Page.APP && app != null) app.close();
+        if ((page == Page.HACK || page == Page.CIPHER || page == Page.ENCRYPT) && p != page) inserted = 0;
         page = p;
         prompt = Prompt.NONE;
         listScroll = 0;
@@ -433,11 +550,29 @@ public class PdaScreen extends Screen {
     private void rebuild() {
         if (input != null) inputDraft = input.getValue();
         clearWidgets();
-        if (noteTitleBox != null) noteTitle = noteTitleBox.getValue();
-        if (noteBody != null) noteText = noteBody.getValue();
-        promptA = promptB = input = password = search = modelBox = noteTitleBox = npcBox = null;
-        noteBody = null;
+        if (noteTitleField != null) noteTitle = noteTitleField.getValue();
+        if (noteArea != null && noteEdit) noteText = noteArea.getValue();
+        promptA = promptB = input = password = search = modelBox = npcBox = null;
+        noteTitleField = null;
+        noteArea = null;
+        pwOld = pwNew = lockField = null;
         if (page == Page.WAIT) return;
+        if (page == Page.HACK || page == Page.CIPHER || page == Page.ENCRYPT) {
+            if (!retro) addRenderableWidget(new IconButton(sx + sw - 20, sy + 13, 16, 16, Icon.CLOSE,
+                    Component.translatable("rppda.btn.close"), null, b -> onClose()));
+            if (page == Page.HACK && hackGrantShown)
+                addRenderableWidget(new IconButton(sx + sw / 2 - 40, sy + sh / 2 + 10, 80, 16, Icon.UNLOCK,
+                        Component.translatable("rppda.hack.enter"), Component.translatable("rppda.hack.enter"),
+                        b -> send("hack.enter", t -> {})));
+            if (page == Page.CIPHER && cipComplete)
+                addRenderableWidget(new IconButton(sx + sw / 2 - 30, sy + sh / 2 + 10, 60, 16, Icon.CHECK,
+                        Component.translatable("rppda.btn.ok"), Component.translatable("rppda.btn.ok"), b -> openDecrypted()));
+            return;
+        }
+        if (page == Page.PASSWORD) {
+            passwordWidgets();
+            return;
+        }
         if (page == Page.REGISTER) {
             addRenderableWidget(new IconButton(sx + sw / 2 - 70, sy + sh / 2 + 10, 140, 20, Icon.CHECK,
                     Component.translatable("rppda.btn.register"), Component.translatable("rppda.btn.register"),
@@ -447,7 +582,7 @@ public class PdaScreen extends Screen {
                         b -> openLook(-1, Page.REGISTER)));
                 // NPC-учётка прямо на этот КПК.
                 int ny = sy + sh / 2 + 58;
-                npcBox = new EditBox(font, sx + sw / 2 - 70, ny, 118, retro ? 10 : 14, Component.translatable("rppda.hint.npc_name"));
+                npcBox = new Ui.Box(font, sx + sw / 2 - 70, ny, 118, retro ? 10 : 14, Component.translatable("rppda.hint.npc_name"));
                 npcBox.setMaxLength(32);
                 npcBox.setHint(hint("rppda.hint.npc_name"));
                 box(npcBox);
@@ -464,15 +599,14 @@ public class PdaScreen extends Screen {
             return;
         }
         if (page == Page.LOCKED) {
-            password = new EditBox(font, sx + sw / 2 - 60, sy + sh / 2 + 8, 100, 16, Component.translatable("rppda.hint.password"));
-            password.setMaxLength(32);
-            mask(password);
-            box(password);
-            password.setHint(hint("rppda.hint.password"));
-            addRenderableWidget(password);
-            setInitialFocus(password);
-            addRenderableWidget(new IconButton(sx + sw / 2 + 44, sy + sh / 2 + 7, Icon.UNLOCK,
-                    Component.translatable("rppda.btn.unlock"), b -> unlock()));
+            if (lockedBurned) return;
+            // Поле — по центру экрана, замок — справа от него (в центровку не входит).
+            int fw = 110, fx = sx + sw / 2 - fw / 2, fy = sy + sh / 2 + 6;
+            lockField = new Field(fx, fy, fw, 16, Component.translatable("rppda.hint.password")).masked(true).centered(true)
+                    .hint(Component.translatable("rppda.hint.password").getString()).max(32);
+            addRenderableWidget(lockField);
+            setInitialFocus(lockField);
+            addRenderableWidget(new IconButton(fx + fw + 4, fy - 1, Icon.UNLOCK, Component.translatable("rppda.btn.unlock"), b -> unlock()));
             return;
         }
         rail();
@@ -487,7 +621,7 @@ public class PdaScreen extends Screen {
             case MEMBERS -> membersWidgets();
             case PROFILE -> profileWidgets();
             case SYS_ACCOUNTS -> {
-                search = new EditBox(font, cx + 2, cy + 2, cw - 46, 14, Component.translatable("rppda.hint.search"));
+                search = new Ui.Box(font, cx + 2, cy + 2, cw - 46, 14, Component.translatable("rppda.hint.search"));
                 search.setHint(hint("rppda.hint.search"));
                 search.setValue(sysQuery);
                 box(search);
@@ -538,6 +672,7 @@ public class PdaScreen extends Screen {
                 }
             };
             if (sec.on) b.color = Ui.ACCENT;
+            b.click = Sfx.SELECT;
             addRenderableWidget(b);
             y += 20;
         }
@@ -586,6 +721,7 @@ public class PdaScreen extends Screen {
     }
 
     private void openApp(faygolover.rppda.api.PdaApps.App a) {
+        if (guardLeave(() -> openApp(a))) return;
         if (app != null && app != a) app.close();
         app = a;
         page = Page.APP;
@@ -670,8 +806,8 @@ public class PdaScreen extends Screen {
         }
         if (canWrite()) {
             int iy = cy + ch - 16;
-            input = retro ? new EditBox(font, cx + 12, iy + 4, cw - 34, 10, Component.translatable("rppda.hint.message"))
-                    : new EditBox(font, cx + 2, iy, cw - 24, 15, Component.translatable("rppda.hint.message"));
+            input = retro ? new Ui.Box(font, cx + 12, iy + 4, cw - 34, 10, Component.translatable("rppda.hint.message"))
+                    : new Ui.Box(font, cx + 2, iy, cw - 24, 15, Component.translatable("rppda.hint.message"));
             box(input);
             input.setMaxLength(maxLen);
             input.setHint(hint("rppda.hint.message"));
@@ -710,10 +846,10 @@ public class PdaScreen extends Screen {
             showToast(Component.translatable("rppda.toast.copied"), false);
         }));
         addRenderableWidget(new IconButton(bx, by, Icon.KEY, Component.translatable(hasPw ? "rppda.btn.change_pw" : "rppda.btn.set_pw"),
-                b -> openPrompt(Prompt.SET_PW, 0)));
+                b -> openPassword(hasPw ? PwMode.CHANGE : PwMode.SET)));
         if (hasPw) {
             addRenderableWidget(new IconButton(bx + 20, by, Icon.TRASH, Component.translatable("rppda.btn.remove_pw"),
-                    b -> openPrompt(Prompt.REMOVE_PW, 0)));
+                    b -> openPassword(PwMode.REMOVE)));
             addRenderableWidget(new IconButton(bx + 40, by, Icon.LOCK, Component.translatable("rppda.btn.lock"),
                     b -> ClientPda.send("lock", new CompoundTag())));
         }
@@ -778,7 +914,7 @@ public class PdaScreen extends Screen {
         int y = cy + 20;
         boolean two = prompt == Prompt.ADD_CONTACT && promptTarget == 0 || prompt == Prompt.SET_PW && hasPw;
         int boxW = two ? (cw - 52) / 2 : cw - 48;
-        promptA = new EditBox(font, cx + 4, y + 2, boxW, 14, Component.empty());
+        promptA = new Ui.Box(font, cx + 4, y + 2, boxW, 14, Component.empty());
         promptA.setHint(hint(hintA()));
         promptA.setMaxLength(prompt == Prompt.NEW_DM || prompt == Prompt.INVITE || prompt == Prompt.ADD_CONTACT && promptTarget == 0 ? 9 : 32);
         if (prompt == Prompt.SET_PW || prompt == Prompt.REMOVE_PW) mask(promptA);
@@ -789,7 +925,7 @@ public class PdaScreen extends Screen {
         setInitialFocus(promptA);
         setFocused(promptA);
         if (two) {
-            promptB = new EditBox(font, cx + 8 + boxW, y + 2, boxW, 14, Component.empty());
+            promptB = new Ui.Box(font, cx + 8 + boxW, y + 2, boxW, 14, Component.empty());
             promptB.setHint(hint(prompt == Prompt.SET_PW ? "rppda.hint.new_password" : "rppda.hint.label")
                     );
             promptB.setMaxLength(32);
@@ -905,10 +1041,10 @@ public class PdaScreen extends Screen {
     }
 
     private void unlock() {
-        if (password == null) return;
-        String pw = password.getValue();
+        if (lockField == null) return;
+        String pw = lockField.getValue();
         send("unlock", t -> t.putString("pw", pw));
-        password.setValue("");
+        lockField.setValue("");
     }
 
     private void openChat(CompoundTag row, Page back) {
@@ -958,10 +1094,32 @@ public class PdaScreen extends Screen {
                 unlock();
                 return true;
             }
+            if (page == Page.PASSWORD) {
+                if (getFocused() == pwOld && pwNew != null) setFocused(pwNew);
+                else confirmPassword();
+                return true;
+            }
             if (page == Page.CHAT && input != null && getFocused() == input) {
                 sendMessage();
                 return true;
             }
+            if (page == Page.HACK && hackGrantShown) {
+                send("hack.enter", t -> {});
+                return true;
+            }
+            if (page == Page.CIPHER && cipComplete) {
+                openDecrypted();
+                return true;
+            }
+        }
+        if (key == GLFW.GLFW_KEY_ESCAPE && pendingLeave != null) {
+            pendingLeave = null;
+            rebuild();
+            return true;
+        }
+        if (key == GLFW.GLFW_KEY_ESCAPE && page == Page.PASSWORD) {
+            setPage(Page.PROFILE);
+            return true;
         }
         if (key == GLFW.GLFW_KEY_ESCAPE && prompt != Prompt.NONE) {
             prompt = Prompt.NONE;
@@ -987,6 +1145,7 @@ public class PdaScreen extends Screen {
 
     @Override
     public void onClose() {
+        if (guardLeave(this::onClose)) return;
         ClientPda.send("close", new CompoundTag());
         super.onClose();
     }
@@ -1005,8 +1164,11 @@ public class PdaScreen extends Screen {
         if (super.mouseClicked(mx, my, button)) return true;
         if (page == Page.APP && app != null && app.mouseClicked(mx, my, button)) return true;
         if (button != 0) return false;
+        if (hackClick(mx, my)) return true;
         for (Hot hot : new ArrayList<>(hots)) {
             if (hot.in(mx, my)) {
+                // Ячейки расшифровки звучат сами; остальное (строки списков, значки) — обычное нажатие.
+                if (!hot.key.startsWith("cip")) Sfx.play(Sfx.PRESS, 0.4f);
                 hot.run.run();
                 return true;
             }
@@ -1025,6 +1187,7 @@ public class PdaScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mx, double my, double delta) {
+        if (noteArea != null && noteArea.mouseScrolled(mx, my, delta)) return true;
         if (!retro && mx < sx + 22 && mx >= sx) {
             railOffset = Math.max(0, railOffset - (int) Math.signum(delta));
             rebuild();
@@ -1050,6 +1213,8 @@ public class PdaScreen extends Screen {
         renderBackground(g);
         hots.clear();
         boolean sys = systemSkin();
+        // Вставленное устройство — до корпуса: штекер уходит под него.
+        drawInserted(g);
         if (retro) retroBody(g, mx, my);
         else {
         // Корпус.
@@ -1062,18 +1227,22 @@ public class PdaScreen extends Screen {
         g.fill(x0 + w / 2 - 12, y0 + h - 5, x0 + w / 2 + 12, y0 + h - 3, sys ? 0xFF7A2A2A : Ui.ACCENT_DARK);
         }
 
-        if (page == Page.WAIT) {
+        if (page == Page.HACK) {
+            renderHack(g, mx, my);
+        } else if (page == Page.CIPHER) {
+            renderCipher(g);
+        } else if (page == Page.ENCRYPT) {
+            renderEncrypt(g);
+        } else if (page == Page.WAIT) {
             drawCentered(g, Component.translatable("rppda.screen.loading"), sy + sh / 2 - 4, Ui.DIM);
         } else if (page == Page.REGISTER) {
             Ui.icon(g, Icon.PDA, sx + sw / 2 - 16, sy + sh / 2 - 46, 32, Ui.ACCENT);
             drawCentered(g, Component.translatable("rppda.screen.new_device"), sy + sh / 2 - 8, Ui.TEXT);
             drawCentered(g, Component.translatable("rppda.screen.new_device_hint"), sy + sh / 2 + 36, Ui.DIM);
         } else if (page == Page.LOCKED) {
-            Ui.icon(g, Icon.LOCK, sx + sw / 2 - 16, sy + sh / 2 - 52, 32, Ui.ACCENT);
-            drawCentered(g, Component.literal(lockedName), sy + sh / 2 - 14, Ui.TEXT);
-            drawCentered(g, Component.literal("ID " + Ui.formatId(lockedId)), sy + sh / 2 - 4, Ui.DIM);
-            long wait = waitUntil - System.currentTimeMillis();
-            if (wait > 0) drawCentered(g, Component.translatable("rppda.err.wait", (wait + 999) / 1000), sy + sh / 2 + 30, Ui.RED);
+            renderLocked(g);
+        } else if (page == Page.PASSWORD) {
+            renderPassword(g);
         } else {
             statusBar(g);
             if (!retro) g.fill(sx + 22, sy + 12, sx + 23, sy + sh, Ui.SEP);
@@ -1120,7 +1289,14 @@ public class PdaScreen extends Screen {
             g.pose().popPose();
         }
         if (retro && Ui.crt) crt(g);
+        updateMinigameHover(mx, my);
         hoverTooltip(g, mx, my);
+    }
+
+    /** Наведение на клетку расшифровки — по собранным за кадр зонам (подсветка со следующего кадра). */
+    private void updateMinigameHover(int mx, int my) {
+        cipHover = -1;
+        if (page == Page.CIPHER) for (Hot hot : hots) if (hot.in(mx, my) && hot.key.startsWith("cip")) cipHover = Integer.parseInt(hot.key.substring(3));
     }
 
     private void hoverTooltip(GuiGraphics g, int mx, int my) {
@@ -1495,7 +1671,10 @@ public class PdaScreen extends Screen {
                 txt(g, l, bx + 5, ty, deleted ? Ui.DIM : Ui.TEXT, false);
                 ty += 9;
             }
-            boolean hover = mx >= bx && mx < bx + bw && my >= by && my < by + bh && my >= top && my < bottom;
+            // Наведение — пузырь вместе с полосой значков сбоку (иначе они пропадают, пока ведёшь к ним мышь).
+            int strip = 3 * 14 + 4;
+            int hx0 = b.own ? bx - strip : bx, hx1 = b.own ? bx + bw : bx + bw + strip;
+            boolean hover = mx >= hx0 && mx < hx1 && my >= by && my < by + Math.max(bh, 16) && my >= top && my < bottom;
             if (hover && !deleted) {
                 int ix = b.own ? bx - 15 : bx + bw + 3;
                 int seq = m.getInt("s");
@@ -1750,7 +1929,7 @@ public class PdaScreen extends Screen {
 
     private List<EditBox> framedBoxes() {
         List<EditBox> out = new ArrayList<>();
-        for (EditBox b : new EditBox[]{password, search, promptA, promptB, modelBox, noteTitleBox, npcBox}) if (b != null) out.add(b);
+        for (EditBox b : new EditBox[]{password, search, promptA, promptB, modelBox, npcBox}) if (b != null) out.add(b);
         return out;
     }
 
@@ -1768,6 +1947,14 @@ public class PdaScreen extends Screen {
 
     /** Клавиши корпуса слева направо (F3, F4…). F1 и F2 не трогаем — это скрытие интерфейса и снимок экрана. */
     private List<Key> keys() {
+        if (page == Page.HACK || page == Page.CIPHER || page == Page.ENCRYPT) {
+            List<Key> only = new ArrayList<>();
+            if (page == Page.HACK && hackGrantShown)
+                only.add(new Key(Icon.UNLOCK, "rppda.hack.enter", true, () -> send("hack.enter", t -> {})));
+            if (page == Page.CIPHER && cipComplete) only.add(new Key(Icon.CHECK, "rppda.btn.ok", true, this::openDecrypted));
+            only.add(new Key(Icon.CLOSE, "rppda.btn.close", true, this::onClose));
+            return only;
+        }
         boolean ready = page != Page.WAIT && page != Page.REGISTER && page != Page.LOCKED && !(page == Page.LOOK && lookTarget == -1);
         List<Key> secs = new ArrayList<>();
         for (Section sec : sections()) secs.add(new Key(sec.icon, sec.title, ready, sec.run, sec.app, null));
@@ -1798,7 +1985,7 @@ public class PdaScreen extends Screen {
 
     private boolean canGoBack() {
         return prompt != Prompt.NONE || page == Page.CHAT || page == Page.MEMBERS || page == Page.SYS_ACCOUNT || page == Page.LOOK
-                || page == Page.NOTE || page == Page.NOTE_SHARE;
+                || page == Page.NOTE || page == Page.NOTE_SHARE || page == Page.PASSWORD;
     }
 
     private void goBack() {
@@ -1817,6 +2004,7 @@ public class PdaScreen extends Screen {
             case LOOK -> cancelLook();
             case NOTE -> setPage(Page.NOTES);
             case NOTE_SHARE -> setPage(Page.NOTE);
+            case PASSWORD -> setPage(Page.PROFILE);
             default -> {}
         }
     }
@@ -1844,8 +2032,17 @@ public class PdaScreen extends Screen {
         heldByMouse = mouse;
         Key k = ks.get(i);
         if (!k.enabled) return;
-        Minecraft.getInstance().getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK.value(), 1.6f, 0.25f));
+        Sfx.play(keySound(k), 0.5f);
         k.run.run();
+    }
+
+    /** Звук клавиши корпуса: листание, назад/закрыть, управление или раздел. */
+    private static net.minecraft.sounds.SoundEvent keySound(Key k) {
+        if (k.label != null) return Sfx.PAGE;
+        if (k.icon == Icon.BACK || k.icon == Icon.CLOSE) return Sfx.CANCEL;
+        if (k.icon == Icon.LOCK || k.icon == Icon.UNLOCK || k.icon == Icon.SYSTEM || k.icon == Icon.CHECK) return Sfx.PRESS;
+        // Клавиши корпуса есть только у ретро: механический щелчок Пип-боя.
+        return Sfx.SELECT_RETRO;
     }
 
     /** F3…F9 при открытом ретро-КПК — его клавиши (зовётся до остальных модов). Возвращает, забрали ли нажатие. */
@@ -1856,22 +2053,6 @@ public class PdaScreen extends Screen {
         if (down) pressKey(i, false);
         else if (heldKey == i && !heldByMouse) heldKey = -1;
         return true;
-    }
-
-    /** Для снимков: открыть заметку. */
-    void openNoteForShot(CompoundTag n) {
-        openNote(n);
-    }
-
-    /** Для снимков: открыть «Внешний вид» нового КПК. */
-    void openLookForShot() {
-        openLook(-1, Page.REGISTER);
-    }
-
-    /** Для снимков: показать клавишу нажатой без действия. */
-    void holdKeyForShot(int i) {
-        heldKey = i;
-        heldByMouse = true;
     }
 
     private void retroBody(GuiGraphics g, int mx, int my) {
@@ -1995,7 +2176,7 @@ public class PdaScreen extends Screen {
         toolbarButton(0, Icon.CLOSE, "rppda.btn.cancel", this::cancelLook);
         toolbarButton(1, Icon.CHECK, "rppda.btn.ok", this::applyLook);
         if (editLook == null) return;
-        modelBox = new EditBox(font, cx + 64, cy + 98, 150, retro ? 10 : 14, Component.translatable("rppda.look.model"));
+        modelBox = new Ui.Box(font, cx + 64, cy + 98, 150, retro ? 10 : 14, Component.translatable("rppda.look.model"));
         modelBox.setMaxLength(faygolover.rppda.data.Look.MODEL_MAX);
         modelBox.setHint(Component.literal(Ui.up(Component.translatable("rppda.model." + editLook.body).getString()))
                 .withStyle(Style.EMPTY.withColor(Ui.DIM & 0xFFFFFF)));
@@ -2100,25 +2281,86 @@ public class PdaScreen extends Screen {
 
     // ================================================================ заметки
 
+    /** Открыть заметку: своя — в просмотре (новая — сразу в правке), полученная — только чтение. */
     private void openNote(@Nullable CompoundTag n) {
-        noteId = n == null ? 0 : n.getInt("id");
-        noteTitle = n == null ? "" : n.getString("title");
-        noteText = n == null ? "" : n.getString("text");
+        if (n == null) {
+            noteId = 0;
+            noteTitle = noteText = noteBaseTitle = noteBaseText = "";
+            noteRo = noteLocked = noteCipher = false;
+            noteOpened = 0;
+            noteEdit = true;
+        } else {
+            readNote(n);
+            noteEdit = false;
+        }
         noteDeleteArmed = 0;
+        noteSavedAt = 0;
+        pendingLeave = null;
         page = Page.NOTE;
         prompt = Prompt.NONE;
         rebuild();
     }
 
+    private void readNote(CompoundTag n) {
+        noteId = n.getInt("id");
+        noteTitle = noteBaseTitle = n.getString("title");
+        noteText = noteBaseText = n.getString("text");
+        noteRo = n.getBoolean("ro");
+        noteLocked = n.getBoolean("locked");
+        noteCipher = n.getBoolean("cipher");
+        noteOpened = n.getInt("opened");
+    }
+
+    /** Есть несохранённые правки. */
+    private boolean noteDirty() {
+        if (page != Page.NOTE || !noteEdit) return false;
+        String t = noteTitleField != null ? noteTitleField.getValue() : noteTitle;
+        String x = noteArea != null ? noteArea.getValue() : noteText;
+        return !t.equals(noteBaseTitle) || !x.equals(noteBaseText);
+    }
+
+    /** Уйти с заметки с правками — сначала спросить. */
+    private boolean guardLeave(Runnable then) {
+        if (leaving || !noteDirty()) return false;
+        pendingLeave = then;
+        rebuild();
+        return true;
+    }
+
     private void noteWidgets() {
         addRenderableWidget(new IconButton(cx, cy, Icon.BACK, Component.translatable("rppda.btn.back"), b -> setPage(Page.NOTES)));
-        toolbarButton(0, Icon.CHECK, "rppda.btn.note_save", this::saveNote);
-        if (noteId > 0) {
-            toolbarButton(1, Icon.SEND, "rppda.btn.note_share", () -> {
-                saveNote();
-                setPage(Page.NOTE_SHARE);
-            });
-            toolbarButton(2, Icon.TRASH, "rppda.btn.note_delete", () -> {
+        boolean busy = false;
+        int n = 0;
+        if (!noteRo && !noteLocked) {
+            if (noteSavedAt > 0) {
+                IconButton ok = toolbarButton(n++, Icon.CHECK, "rppda.btn.note_saved", () -> {});
+                ok.active = false;
+                ok.color = Ui.GREEN;
+            } else if (noteEdit) {
+                toolbarButton(n++, Icon.SAVE, "rppda.btn.note_save", this::saveNote);
+            } else {
+                IconButton e = toolbarButton(n++, Icon.EDIT, "rppda.btn.note_edit", () -> {
+                    noteEdit = true;
+                    rebuild();
+                    if (noteArea != null) setFocused(noteArea);
+                });
+                e.active = !busy;
+            }
+        }
+        if (noteId > 0 && !noteEdit) {
+            // Зашифровать свою читаемую заметку или расшифровать закрытую — дешифратором.
+            if (noteLocked && noteCipher) {
+                int id = noteId;
+                toolbarButton(n++, Icon.KEY, "rppda.btn.note_decrypt", () -> send("cipher.start", t -> t.putInt("id", id)));
+            } else if (!noteRo && !noteCipher && !noteText.isBlank()) {
+                int id = noteId;
+                toolbarButton(n++, Icon.LOCK, "rppda.btn.note_encrypt", () -> send("notes.encrypt", t -> t.putInt("id", id)));
+            }
+            if (!noteRo && !noteLocked) {
+                IconButton sh = toolbarButton(n++, Icon.SEND, "rppda.btn.note_share", () -> setPage(Page.NOTE_SHARE));
+                sh.active = !busy;
+            }
+            IconButton del = toolbarButton(n++, Icon.TRASH, "rppda.btn.note_delete", () -> {
                 long now = System.currentTimeMillis();
                 if (now - noteDeleteArmed > 4000) {
                     noteDeleteArmed = now;
@@ -2127,26 +2369,55 @@ public class PdaScreen extends Screen {
                 }
                 int id = noteId;
                 send("notes.delete", t -> t.putInt("id", id));
+                leaving = true;
                 setPage(Page.NOTES);
+                leaving = false;
             });
+            del.active = !busy;
         }
-        noteTitleBox = new EditBox(font, cx + 22, cy + 4, cw - 22 - 64, retro ? 10 : 12, Component.translatable("rppda.hint.note_title"));
-        noteTitleBox.setMaxLength(faygolover.rppda.data.Note.TITLE_MAX);
-        noteTitleBox.setHint(hint("rppda.hint.note_title"));
-        noteTitleBox.setValue(noteTitle);
-        box(noteTitleBox);
-        addRenderableWidget(noteTitleBox);
-        noteBody = new net.minecraft.client.gui.components.MultiLineEditBox(font, cx + 2, cy + 22, cw - 4, ch - 24,
-                hint("rppda.hint.note_text"), Component.translatable("rppda.page.notes"));
-        noteBody.setCharacterLimit(faygolover.rppda.data.Note.TEXT_MAX);
-        noteBody.setValue(noteText);
-        addRenderableWidget(noteBody);
-        setInitialFocus(noteText.isEmpty() && noteTitle.isEmpty() ? noteTitleBox : noteBody);
+        int tools = n * 19 + 4;
+        if (noteEdit) {
+            noteTitleField = new Field(cx + 21, cy + 2, cw - 21 - tools, 14, Component.translatable("rppda.hint.note_title"))
+                    .hint(Component.translatable("rppda.hint.note_title").getString()).max(faygolover.rppda.data.Note.TITLE_MAX);
+            noteTitleField.setValue(noteTitle);
+            addRenderableWidget(noteTitleField);
+        }
+        if (busy) return;
+        int bottom = cy + ch - (pendingLeave != null ? 18 : noteFooter() ? 12 : 2);
+        noteArea = new NoteArea(cx + 2, cy + 20, cw - 4, bottom - (cy + 20), (g, str, x, y, c) -> txt(g, str, x, y, c, false))
+                .editable(noteEdit).max(faygolover.rppda.data.Note.TEXT_MAX)
+                .hint(noteEdit ? Component.translatable("rppda.hint.note_text").getString() : "")
+                .color(noteLocked ? Ui.DIM : 0);
+        noteArea.setValue(noteText);
+        addRenderableWidget(noteArea);
+        if (noteEdit) setInitialFocus(noteTitle.isEmpty() && noteText.isEmpty() && noteTitleField != null ? noteTitleField : noteArea);
+        if (pendingLeave != null) {
+            Runnable go = pendingLeave;
+            int by = cy + ch - 16;
+            addRenderableWidget(new IconButton(cx + cw - 36, by, 16, 16, Icon.CHECK, Component.translatable("rppda.btn.leave_unsaved"), null, b -> {
+                pendingLeave = null;
+                noteEdit = false;
+                leaving = true;
+                go.run();
+                leaving = false;
+            }));
+            addRenderableWidget(new IconButton(cx + cw - 18, by, 16, 16, Icon.CLOSE, Component.translatable("rppda.btn.stay"), null, b -> {
+                pendingLeave = null;
+                rebuild();
+            }));
+        }
+    }
+
+    /** Внизу заметки — строка «от кого» / «зашифрована». */
+    private boolean noteFooter() {
+        if (noteCipher) return true;
+        for (CompoundTag n : notes) if (n.getInt("id") == noteId && n.contains("from")) return true;
+        return false;
     }
 
     private void saveNote() {
-        if (noteTitleBox != null) noteTitle = noteTitleBox.getValue();
-        if (noteBody != null) noteText = noteBody.getValue();
+        if (noteTitleField != null) noteTitle = noteTitleField.getValue();
+        if (noteArea != null) noteText = noteArea.getValue();
         if (noteTitle.isBlank() && noteText.isBlank()) return;
         int id = noteId;
         String title = noteTitle, text = noteText;
@@ -2160,7 +2431,8 @@ public class PdaScreen extends Screen {
     private void renderNotes(GuiGraphics g, int mx, int my) {
         title(g, Component.translatable("rppda.page.notes"), 4);
         list(g, mx, my, notes, 22, "note", (gg, n, y, hover) -> {
-            Ui.icon(gg, Icon.NOTE, cx + 4, y + 3, 16, n.contains("from") ? Ui.GOLD : Ui.ACCENT);
+            boolean enc = n.getBoolean("cipher") && (n.getInt("opened") & 0b111) != 0b111;
+            Ui.icon(gg, enc ? Icon.LOCK : Icon.NOTE, cx + 4, y + 3, 16, n.contains("from") ? Ui.GOLD : Ui.ACCENT);
             txt(gg, fit(n.getString("title"), cw - 34), cx + 24, y + 2, Ui.TEXT, false);
             String sub = Ui.time(n.getLong("updated")) + (n.contains("from")
                     ? " · " + Component.translatable("rppda.note.from", n.getString("from")).getString() : "");
@@ -2169,12 +2441,29 @@ public class PdaScreen extends Screen {
     }
 
     private void renderNote(GuiGraphics g) {
-        if (noteId == 0) return;
-        for (CompoundTag n : notes) {
-            if (n.getInt("id") == noteId && n.contains("from")) {
-                txt(g, fit(Component.translatable("rppda.note.from", n.getString("from")).getString(), cw - 10), cx + 4, cy + ch - 9, Ui.GOLD, false);
-            }
+        if (!noteEdit) {
+            String t = noteTitle.isEmpty() ? "…" : noteTitle;
+            int tools = 4 * 19 + 4;
+            txt(g, fit(t, cw - 24 - tools - 12), cx + 22, cy + 5, Ui.TEXT, false);
         }
+        g.fill(cx, cy + 18, cx + cw, cy + 19, Ui.SEP);
+        int fy = cy + ch - 9;
+        if (pendingLeave != null) {
+            txt(g, fit(Component.translatable("rppda.note.unsaved").getString(), cw - 44), cx + 4, cy + ch - 12, Ui.GOLD, false);
+            return;
+        }
+        String foot = "";
+        int fcol = Ui.GOLD;
+        for (CompoundTag n : notes) {
+            if (n.getInt("id") == noteId && n.contains("from")) foot = Component.translatable("rppda.note.from", n.getString("from")).getString();
+        }
+        if (noteCipher) {
+            int open = Integer.bitCount(noteOpened & 0b111);
+            foot = (foot.isEmpty() ? "" : foot + " · ") + (open >= 3 ? Component.translatable("rppda.note.encrypted").getString()
+                    : Component.translatable("rppda.note.encrypted_part", open).getString());
+            fcol = Ui.ACCENT;
+        }
+        if (!foot.isEmpty()) txt(g, fit(foot, cw - 10), cx + 4, fy, noteLocked ? Ui.DIM : fcol, false);
     }
 
     private void renderNoteShare(GuiGraphics g, int mx, int my) {
@@ -2206,6 +2495,135 @@ public class PdaScreen extends Screen {
             t.putInt("chat", chatRow.getInt("id"));
             t.putInt("seq", seq);
         }));
+    }
+
+    // ================================================================ блокировка и пароль
+
+    private void renderLocked(GuiGraphics g) {
+        if (lockedBurned) {
+            int cy2 = sy + sh / 2;
+            Ui.icon(g, Icon.LOCK, sx + sw / 2 - 16, cy2 - 54, 32, Ui.RED);
+            drawCentered(g, Component.translatable("rppda.hack.burned"), cy2 - 14, Ui.RED);
+            drawCentered(g, Component.translatable("rppda.hack.burned_sub"), cy2 - 2, Ui.TEXT);
+            int ly = cy2 + 16;
+            for (FormattedCharSequence l : font.split(Component.translatable("rppda.hack.burned_hint"), sw - 24)) {
+                txt(g, l, sx + sw / 2 - font.width(l) / 2, ly, Ui.DIM, false);
+                ly += 10;
+            }
+            return;
+        }
+        Ui.icon(g, Icon.LOCK, sx + sw / 2 - 16, sy + sh / 2 - 52, 32, Ui.ACCENT);
+        drawCentered(g, Component.literal(lockedName), sy + sh / 2 - 14, Ui.TEXT);
+        drawCentered(g, Component.literal("ID " + Ui.formatId(lockedId)), sy + sh / 2 - 4, Ui.DIM);
+        long wait = waitUntil - System.currentTimeMillis();
+        if (wait > 0) drawCentered(g, Component.translatable("rppda.err.wait", (wait + 999) / 1000), sy + sh / 2 + 24, Ui.RED);
+        // Пометка владельцу: был ли взлом, пока КПК был не у него.
+        if (lockedHack > 0) {
+            int hy = sy + sh - 22;
+            drawCentered(g, Component.translatable(lockedHack >= 2 ? "rppda.hacked.breached" : "rppda.hacked.tried"), hy, Ui.RED);
+            drawCentered(g, Component.literal(Ui.time(lockedHackTime) + " · "
+                    + Component.translatable("rppda.hacked.change_pw").getString()), hy + 10, Ui.DIM);
+        }
+    }
+
+    private void openPassword(PwMode mode) {
+        pwMode = mode;
+        setPage(Page.PASSWORD);
+    }
+
+    /** Пароль — отдельный экран, как разблокировка: поля по центру, кнопка справа от поля; новый пароль виден. */
+    private void passwordWidgets() {
+        if (!retro) addRenderableWidget(new IconButton(sx + 4, sy + 14, Icon.BACK, Component.translatable("rppda.btn.back"), b -> setPage(Page.PROFILE)));
+        int fw = 120, fx = sx + sw / 2 - fw / 2, y = sy + sh / 2 + 2;
+        if (pwMode == PwMode.CHANGE) y -= 10;
+        Field last = null;
+        if (pwMode != PwMode.SET) {
+            pwOld = new Field(fx, y, fw, 16, Component.translatable("rppda.hint.old_password")).masked(true).centered(true)
+                    .hint(Component.translatable("rppda.hint.old_password").getString()).max(32);
+            addRenderableWidget(pwOld);
+            last = pwOld;
+            y += 21;
+        }
+        if (pwMode != PwMode.REMOVE) {
+            pwNew = new Field(fx, y, fw, 16, Component.translatable("rppda.hint.new_password")).centered(true)
+                    .hint(Component.translatable("rppda.hint.new_password").getString()).max(32);
+            addRenderableWidget(pwNew);
+            last = pwNew;
+        }
+        if (last != null) addRenderableWidget(new IconButton(fx + fw + 4, last.getY() - 1, pwMode == PwMode.REMOVE ? Icon.TRASH : Icon.CHECK,
+                Component.translatable(pwMode == PwMode.REMOVE ? "rppda.btn.remove_pw" : "rppda.btn.ok"), b -> confirmPassword()));
+        setInitialFocus(pwOld != null ? pwOld : pwNew);
+    }
+
+    private void confirmPassword() {
+        String old = pwOld == null ? "" : pwOld.getValue();
+        String pw = pwNew == null ? "" : pwNew.getValue();
+        if (pwMode != PwMode.REMOVE && pw.isEmpty()) return;
+        send("profile.password", t -> {
+            t.putString("old", old);
+            t.putString("pw", pw);
+        });
+    }
+
+    private void renderPassword(GuiGraphics g) {
+        statusBar(g);
+        int top = sy + sh / 2 - (pwMode == PwMode.CHANGE ? 72 : 62);
+        Ui.icon(g, pwMode == PwMode.REMOVE ? Icon.UNLOCK : Icon.KEY, sx + sw / 2 - 16, top, 32, Ui.ACCENT);
+        String key = switch (pwMode) {
+            case SET -> "rppda.pw.set";
+            case CHANGE -> "rppda.pw.change";
+            case REMOVE -> "rppda.pw.remove";
+        };
+        drawCentered(g, Component.translatable(key), top + 38, Ui.TEXT);
+        if (pwMode != PwMode.REMOVE)
+            drawCentered(g, Component.translatable("rppda.pw.visible"), sy + sh / 2 + (pwMode == PwMode.CHANGE ? 36 : 26), Ui.DIM);
+    }
+
+    @Override
+    public void tick() {
+        super.tick();
+        // Галочка «Сохранено» — 2 секунды, потом снова карандаш.
+        if (noteSavedAt > 0 && System.currentTimeMillis() - noteSavedAt > 2000) {
+            noteSavedAt = 0;
+            if (page == Page.NOTE) rebuild();
+        }
+        // Расшифровка: время вышло — сообщить серверу (он закончит).
+        if (page == Page.CIPHER && cipTimerBase > 0 && !cipTimedOut && !cipEnded
+                && System.currentTimeMillis() - cipTimerBase >= cipSeconds * 1000L) {
+            cipTimedOut = true;
+            send("cipher.timeout", t -> {});
+        }
+        boolean mini = page == Page.HACK || page == Page.CIPHER || page == Page.ENCRYPT;
+        // Устройство вошло в бок КПК — щелчок.
+        if (mini && inserted != 0 && !insertSounded && since(insertAt) >= INSERT_MS) {
+            insertSounded = true;
+            Sfx.play(Sfx.INSERT, 0.6f);
+        }
+        // Долгая работа — петля: нарастает при старте, стихает перед итогом.
+        boolean busy = mini && computing();
+        if (busy && work == null) work = Sfx.Loop.start(Sfx.WORK);
+        if (!busy && work != null) {
+            work.fadeOut();
+            work = null;
+        }
+        // Подключение закончилось — «верно».
+        long connect = page == Page.HACK ? HACK_CONNECT_MS : page == Page.CIPHER ? CIPHER_CONNECT_MS : -1;
+        if (connect > 0 && inserted != 0 && !connectSounded && since(insertAt) >= INSERT_MS + connect) {
+            connectSounded = true;
+            Sfx.play(Sfx.GOOD);
+        }
+        // Взлом: точки загрузки прошли — «Доступ открыт» и кнопка «Войти».
+        if (page == Page.HACK && hackOk && !hackGrantShown && since(hackOkAt) >= GRANT_DOTS_MS) {
+            hackGrantShown = true;
+            Sfx.play(Sfx.DONE);
+            rebuild();
+        }
+        // Шифрование: анимация ~10 с, потом назад к заметкам.
+        if (page == Page.ENCRYPT && since(insertAt) > INSERT_MS + ENCRYPT_MS) {
+            Sfx.play(Sfx.DONE);
+            inserted = 0;
+            setPage(Page.NOTES);
+        }
     }
 
     /** Удаление учётки: NPC — два нажатия, учётка игрока — три (двойное подтверждение). */
@@ -2351,6 +2769,495 @@ public class PdaScreen extends Screen {
     private int txtEnd(GuiGraphics g, String s, int x, int y, int color) {
         txt(g, s, x, y, color, false);
         return x + tw(s);
+    }
+
+    // ================================================================ мини-игры: взлом и расшифровка
+
+    /** Устройство въезжает в бок КПК столько мс, потом — подключение (анимация и «вычисления»). */
+    private static final int INSERT_MS = 600, HACK_CONNECT_MS = 2200, CIPHER_CONNECT_MS = 1400, ENCRYPT_MS = 10_000,
+            GRANT_DOTS_MS = 3000, FADE_MS = 500;
+    /** Разбор сетки — при получении, а не каждый кадр: что подсвечивать у клетки ([from, to]), знак, адреса. */
+    private int[] hackFrom = new int[0], hackTo = new int[0];
+    private String[] hackGlyph = new String[0];
+    private String[] hackAddr = new String[0];
+    private int hackLen = 6, hackHoverFrom = -1, hackHoverTo = -1;
+    private long hackOkAt;
+    private boolean hackGrantShown, insertSounded, connectSounded;
+    /** Петля «долгой работы» (null — тихо). */
+    @Nullable
+    private Sfx.Loop work;
+    /** Геометрия сетки (для мыши): начало, ширина колонки, ширина адреса, клетка. */
+    private int hgX, hgY, hgColW, hgAddr, hgCell = 6;
+
+    private void readHack(CompoundTag d) {
+        if (d.contains("grid")) {
+            hackGrid = d.getString("grid").toCharArray();
+            int n = hackGrid.length;
+            hackFrom = new int[n];
+            hackTo = new int[n];
+            hackGlyph = new String[n];
+            for (int i = 0; i < n; i++) {
+                hackGlyph[i] = String.valueOf(Character.toUpperCase(hackGrid[i]));
+                hackFrom[i] = hackTo[i] = i;
+            }
+            // Слово — вся непрерывная серия букв (и через перенос строки); пара скобок — от открывающей до закрывающей.
+            for (int i = 0; i < n; ) {
+                if (!Character.isLetter(hackGrid[i])) {
+                    int close = Hack.bracketPair(hackGrid, i);
+                    if (close >= 0) hackTo[i] = close;
+                    i++;
+                    continue;
+                }
+                int e = i;
+                while (e + 1 < n && Character.isLetter(hackGrid[e + 1])) e++;
+                for (int k = i; k <= e; k++) {
+                    hackFrom[k] = i;
+                    hackTo[k] = e;
+                }
+                i = e + 1;
+            }
+            int lines = Hack.COLS * Hack.ROWS;
+            hackAddr = new String[lines];
+            for (int r = 0; r < lines; r++) hackAddr[r] = String.format("%04X", 0xF4A0 + r * Hack.PER_ROW);
+        }
+        if (d.contains("left")) hackLeft = d.getInt("left");
+        if (d.contains("total")) hackTotal = d.getInt("total");
+        if (d.contains("len")) hackLen = d.getInt("len");
+        if (d.contains("log")) {
+            int before = hackLog.size();
+            hackLog.clear();
+            for (Tag t : d.getList("log", Tag.TAG_COMPOUND)) hackLog.add((CompoundTag) t);
+            // Звук итога хода: отказ / скобки сработали.
+            for (int i = Math.min(before, hackLog.size()); i < hackLog.size(); i++) {
+                String k = hackLog.get(i).getString("k");
+                if (k.equals("deny")) Sfx.play(Sfx.BAD);
+                if (k.equals("dud") || k.equals("restored")) Sfx.play(Sfx.GOOD);
+            }
+        }
+    }
+
+    private long cipTimerBase = -1, cipStopAt;
+    private boolean cipTimedOut, cipComplete;
+
+    private void readCipher(CompoundTag d) {
+        int doneBefore = 0;
+        for (CompoundTag s : cipSeqs) if (s.getBoolean("done")) doneBefore++;
+        cipNote = d.getInt("note");
+        if (d.contains("matrix")) {
+            ListTag m = d.getList("matrix", Tag.TAG_STRING);
+            cipMatrix = new String[m.size()];
+            for (int i = 0; i < m.size(); i++) cipMatrix[i] = m.getString(i);
+        }
+        cipPicks.clear();
+        for (int c : d.getIntArray("picks")) cipPicks.add(c);
+        cipSeqs.clear();
+        int doneNow = 0;
+        for (Tag t : d.getList("seqs", Tag.TAG_COMPOUND)) {
+            cipSeqs.add((CompoundTag) t);
+            if (((CompoundTag) t).getBoolean("done")) doneNow++;
+        }
+        cipBuffer = d.getInt("buffer");
+        cipSeconds = d.getInt("seconds");
+        cipCharges = d.getInt("charges");
+        long el = d.getLong("elapsed");
+        cipTimerBase = el < 0 ? -1 : System.currentTimeMillis() - el;
+        cipTimedOut = false;
+        if (!d.getBoolean("new") && doneNow > doneBefore && !d.getBoolean("complete")) Sfx.play(Sfx.GOOD);
+    }
+
+    /** «ОК» после полной расшифровки: открыть эту заметку (её уже прислал сервер), иначе — список. */
+    private void openDecrypted() {
+        inserted = 0;
+        for (CompoundTag n : notes) {
+            if (n.getInt("id") == cipNote) {
+                openNote(n);
+                return;
+            }
+        }
+        setPage(Page.NOTES);
+    }
+
+    /** Устройство начинает въезжать в бок КПК (звук — когда вошло, в tick). */
+    private void startInsert(int kind) {
+        inserted = kind;
+        insertAt = System.currentTimeMillis();
+        insertSounded = connectSounded = false;
+    }
+
+    /** Мс с момента {@code t}. */
+    private long since(long t) {
+        return System.currentTimeMillis() - t;
+    }
+
+    /** Идут «вычисления» (подключение, загрузка, шифрование) — тихие щелчки терминала. */
+    private boolean computing() {
+        long dt = since(insertAt);
+        return switch (page) {
+            case HACK -> dt >= INSERT_MS && dt < INSERT_MS + HACK_CONNECT_MS - FADE_MS || hackOk && since(hackOkAt) < GRANT_DOTS_MS - FADE_MS;
+            case CIPHER -> dt >= INSERT_MS && dt < INSERT_MS + CIPHER_CONNECT_MS - FADE_MS;
+            case ENCRYPT -> dt >= INSERT_MS && dt < INSERT_MS + ENCRYPT_MS - FADE_MS;
+            default -> false;
+        };
+    }
+
+    // ---------------------------------------------------------------- вставленное устройство в боку корпуса
+
+    /** Рисуется до корпуса: штекер уходит под корпус, между коробочкой и КПК — небольшой зазор. */
+    private void drawInserted(GuiGraphics g) {
+        if (inserted == 0 || (page != Page.HACK && page != Page.CIPHER && page != Page.ENCRYPT)) return;
+        int s = 2;
+        int slide = (int) Math.max(0, 22 - since(insertAt) * 22 / INSERT_MS);
+        int dx = Math.min(x0 + w - 8 + slide, width - 16 * s), dy = sy + 34;
+        if (inserted == 1) drawLockpick(g, dx, dy, s, hackLeft, hackTotal, hackBurned || hackOk);
+        else drawDecryptor(g, dx, dy, s, page == Page.ENCRYPT ? encCharges : cipCharges, computing() || page == Page.CIPHER && !cipComplete);
+    }
+
+    /** Отмычка: тёмная коробочка, штекер влево (под корпус), экранчик с полосками-попытками, красная лампочка. */
+    private void drawLockpick(GuiGraphics g, int x, int y, int s, int left, int total, boolean spent) {
+        int body = 0xFF2E362C, hi = 0xFF54604E, lo = 0xFF1C201A, scr = 0xFF101A10, on = 0xFF78FF8C, dim = 0xFF285030;
+        int metal = 0xFFA89E86;
+        g.fill(x + 1 * s, y + 6 * s, x + 5 * s, y + 10 * s, metal);
+        g.fill(x + 5 * s, y + 3 * s, x + 16 * s, y + 13 * s, body);
+        g.fill(x + 5 * s, y + 3 * s, x + 16 * s, y + 4 * s, hi);
+        g.fill(x + 5 * s, y + 12 * s, x + 16 * s, y + 13 * s, lo);
+        g.fill(x + 7 * s, y + 5 * s, x + 14 * s, y + 9 * s, scr);
+        if (!spent) {
+            int n = Math.max(1, total), pw = s, gap = s, tot = n * pw + (n - 1) * gap;
+            int bx = x + 7 * s + (7 * s - tot) / 2;
+            for (int k = 0; k < n; k++)
+                g.fill(bx + k * (pw + gap), y + 6 * s, bx + k * (pw + gap) + pw, y + 8 * s, k < left ? on : dim);
+        }
+        boolean lamp = !spent && (System.currentTimeMillis() / 500) % 2 == 0;
+        g.fill(x + 12 * s, y + 10 * s, x + 14 * s, y + 12 * s, lamp ? 0xFFFF4628 : 0xFF461A14);
+    }
+
+    /** Дешифратор: синяя коробочка, экранчик с бегущими полосами (работа), жёлтые лампочки-заряды. */
+    private void drawDecryptor(GuiGraphics g, int x, int y, int s, int charges, boolean busy) {
+        int body = 0xFF323C56, hi = 0xFF5C6A8C, lo = 0xFF1E2436, scr = 0xFF0E1420, on = 0xFF6ED2FF, metal = 0xFFA89E86;
+        g.fill(x + 1 * s, y + 6 * s, x + 5 * s, y + 10 * s, metal);
+        g.fill(x + 5 * s, y + 3 * s, x + 16 * s, y + 13 * s, body);
+        g.fill(x + 5 * s, y + 3 * s, x + 16 * s, y + 4 * s, hi);
+        g.fill(x + 5 * s, y + 12 * s, x + 16 * s, y + 13 * s, lo);
+        g.fill(x + 7 * s, y + 5 * s, x + 14 * s, y + 8 * s, scr);
+        if (busy) {
+            long t = System.currentTimeMillis() / 90;
+            for (int k = 0; k < 6; k++) {
+                int bx = x + 7 * s + k * s;
+                if (((t + k) % 3) == 0) g.fill(bx, y + 5 * s + s, bx + s, y + 8 * s, on);
+            }
+        }
+        for (int k = 0; k < 4; k++)
+            g.fill(x + (7 + k * 2) * s, y + 10 * s, x + (7 + k * 2) * s + s, y + 11 * s, k < charges ? 0xFFFFB830 : 0xFF46361C);
+    }
+
+    /** Подключение устройства: «ПОДКЛЮЧЕНИЕ…», строки загрузки, полоса. {@code dt} — мс с начала подключения. */
+    private void connecting(GuiGraphics g, long dt, long total, String titleKey, String... boot) {
+        int cy2 = sy + sh / 2;
+        int dots = (int) (dt / 300) % 4;
+        drawCentered(g, Component.literal(Ui.up(Component.translatable(titleKey).getString()) + ".".repeat(dots)), cy2 - 24, Ui.TEXT);
+        int ly = cy2 - 6;
+        for (int i = 0; i < boot.length; i++) {
+            if (dt > (i + 1) * total / (boot.length + 1)) {
+                drawCentered(g, Component.translatable(boot[i]), ly, i == boot.length - 1 ? Ui.ACCENT : Ui.DIM);
+                ly += 11;
+            }
+        }
+        int bw = sw - 60, bx = sx + 30, prog = (int) Math.min(bw, dt * bw / total);
+        g.renderOutline(bx, cy2 + 34, bw, 6, Ui.DIM);
+        g.fill(bx, cy2 + 34, bx + prog, cy2 + 40, Ui.TEXT);
+    }
+
+    // ---------------------------------------------------------------- взлом пароля
+
+    private void renderHack(GuiGraphics g, int mx, int my) {
+        g.fill(sx, sy, sx + sw, sy + (retro ? 11 : 12), Ui.BAR);
+        String head = Ui.up(Component.translatable("rppda.hack.title").getString()) + "  → " + Ui.up(lockedName) + " " + Ui.formatId(lockedId);
+        g.drawString(font, Ui.fit(font, head, sw - 8), sx + 3, sy + 2, retro ? Ui.SCREEN : Ui.TEXT, false);
+        long dt = since(insertAt);
+        hackHoverFrom = hackHoverTo = -1;
+        if (dt < INSERT_MS) return;
+        if (dt < INSERT_MS + HACK_CONNECT_MS) {
+            connecting(g, dt - INSERT_MS, HACK_CONNECT_MS, "rppda.hack.connecting", "rppda.hack.boot1", "rppda.hack.boot2", "rppda.hack.boot3");
+            return;
+        }
+        if (hackBurned) {
+            burnedScreen(g);
+            return;
+        }
+        // Справа — журнал (не уже 9 знаков и самого длинного слова), остальное — дамп памяти.
+        int cols = Hack.COLS, rows = Hack.ROWS, per = Hack.PER_ROW;
+        int logW = Math.max(9, hackLen + 2) * 6 + 4;
+        hgX = sx + 3;
+        hgY = sy + 16;
+        hgAddr = font.width("FFFF") + 2;
+        hgCell = Math.max(4, Math.min(6, ((sw - 6 - logW - 4) / cols - hgAddr - 3) / per));
+        hgColW = hgAddr + per * hgCell + 3;
+        int logX = hgX + cols * hgColW + 2;
+        // Наведение: мусор — один знак, слово — целиком (и через перенос), пара скобок — вместе с тем, что между.
+        boolean live = !hackOk;
+        int over = live ? hackCellAt(mx, my) : -1;
+        if (over >= 0) {
+            hackHoverFrom = hackFrom[over];
+            hackHoverTo = hackTo[over];
+        }
+        int sel = retro ? Ui.SCREEN : 0xFFFFFFFF, selBg = retro ? Ui.TEXT : Ui.ACCENT;
+        for (int c = 0; c < cols; c++) {
+            int cxp = hgX + c * hgColW;
+            for (int r = 0; r < rows; r++) {
+                int y = hgY + r * 9;
+                int line = c * rows + r, idx0 = line * per;
+                if (idx0 >= hackGrid.length) continue;
+                g.drawString(font, hackAddr[line], cxp, y, retro ? Ui.DIM : Ui.HINT, false);
+                for (int k = 0; k < per && idx0 + k < hackGrid.length; k++) {
+                    int i = idx0 + k;
+                    String gl = hackGlyph[i];
+                    int px = cxp + hgAddr + k * hgCell, tx = px + (hgCell - font.width(gl)) / 2;
+                    boolean hl = i >= hackHoverFrom && i <= hackHoverTo;
+                    if (hl) g.fill(px, y - 1, px + hgCell, y + 8, selBg);
+                    g.drawString(font, gl, tx, y, hl ? sel : Ui.TEXT, false);
+                }
+            }
+        }
+        g.fill(logX - 2, hgY - 1, logX - 1, sy + sh - 4, Ui.SEP);
+        // Журнал: свежие строки внизу; после успеха — «УСПЕХ!» и точки загрузки.
+        List<String> lines = new ArrayList<>();
+        for (CompoundTag l : hackLog) lines.add(Ui.up(hackLogText(l).getString()));
+        if (hackOk) lines.add("> " + ".".repeat((int) Math.min(6, since(hackOkAt) * 6 / GRANT_DOTS_MS)));
+        int fit = (sy + sh - 4 - hgY) / 9;
+        int ly = sy + sh - 4 - Math.min(lines.size(), fit) * 9;
+        for (int i = Math.max(0, lines.size() - fit); i < lines.size(); i++, ly += 9)
+            g.drawString(font, Ui.fit(font, lines.get(i), sx + sw - 3 - logX), logX, ly, Ui.TEXT, false);
+        if (hackOk && since(hackOkAt) >= GRANT_DOTS_MS) {
+            // Надпись над кнопкой «Войти» (кнопка — в rebuild, на sy + sh / 2 + 10).
+            int by = sy + sh / 2;
+            g.fill(sx + 20, by - 10, sx + sw - 20, by + 6, Ui.BAR);
+            drawCentered(g, Component.translatable("rppda.hack.granted"), by - 6, retro ? Ui.SCREEN : Ui.GREEN);
+        }
+    }
+
+    /** Клетка дампа под мышью (−1 — нет). */
+    private int hackCellAt(double mx, double my) {
+        if (hackGrid.length == 0 || my < hgY - 1) return -1;
+        int r = (int) ((my - hgY + 1) / 9);
+        if (r < 0 || r >= Hack.ROWS) return -1;
+        for (int c = 0; c < Hack.COLS; c++) {
+            int x0c = hgX + c * hgColW + hgAddr;
+            if (mx >= x0c && mx < x0c + Hack.PER_ROW * hgCell) {
+                int i = (c * Hack.ROWS + r) * Hack.PER_ROW + (int) ((mx - x0c) / hgCell);
+                return i < hackGrid.length ? i : -1;
+            }
+        }
+        return -1;
+    }
+
+    /** Клик по дампу: любой знак — попытка (сервер сам разберёт: слово, скобки или мусор). */
+    private boolean hackClick(double mx, double my) {
+        if (page != Page.HACK || hackOk || hackBurned || since(insertAt) < INSERT_MS + HACK_CONNECT_MS) return false;
+        int i = hackCellAt(mx, my);
+        if (i < 0) return false;
+        Sfx.play(Sfx.CLICK);
+        send("hack.pick", t -> t.putInt("i", i));
+        return true;
+    }
+
+    private void burnedScreen(GuiGraphics g) {
+        int cy2 = sy + sh / 2;
+        Ui.icon(g, Icon.LOCK, sx + sw / 2 - 16, cy2 - 54, 32, Ui.RED);
+        drawCentered(g, Component.translatable("rppda.hack.burned"), cy2 - 14, Ui.RED);
+        drawCentered(g, Component.translatable("rppda.hack.burned_sub"), cy2 - 2, Ui.TEXT);
+        List<FormattedCharSequence> hint = font.split(Component.translatable("rppda.hack.burned_hint"), sw - 24);
+        int ly = cy2 + 16;
+        for (FormattedCharSequence l : hint) {
+            txt(g, l, sx + sw / 2 - font.width(l) / 2, ly, Ui.DIM, false);
+            ly += 10;
+        }
+        drawCentered(g, Component.translatable("rppda.hack.burned_item"), cy2 + 44, Ui.HINT);
+    }
+
+    private Component hackLogText(CompoundTag l) {
+        String k = l.getString("k");
+        String x = l.getString("x");
+        return switch (k) {
+            case "w" -> Component.translatable("rppda.hack.log.try", x.toUpperCase(java.util.Locale.ROOT));
+            case "deny" -> Component.translatable("rppda.hack.log.deny");
+            case "like" -> Component.translatable("rppda.hack.log.like", x);
+            case "dud" -> Component.translatable("rppda.hack.log.dud");
+            case "restored" -> Component.translatable("rppda.hack.log.restore");
+            case "nothing" -> Component.translatable("rppda.hack.log.nothing");
+            case "granted" -> Component.translatable("rppda.hack.log.granted");
+            default -> Component.literal(x);
+        };
+    }
+
+    // ---------------------------------------------------------------- расшифровка заметки
+
+    private void renderCipher(GuiGraphics g) {
+        g.fill(sx, sy, sx + sw, sy + (retro ? 11 : 12), Ui.BAR);
+        String head = Ui.up(Component.translatable("rppda.cipher.title").getString()) + ": " + Ui.up(cipherTitle());
+        g.drawString(font, Ui.fit(font, head, sw - 60), sx + 3, sy + 2, retro ? Ui.SCREEN : Ui.TEXT, false);
+        long dt = since(insertAt);
+        if (dt < INSERT_MS) return;
+        if (dt < INSERT_MS + CIPHER_CONNECT_MS) {
+            connecting(g, dt - INSERT_MS, CIPHER_CONNECT_MS, "rppda.cipher.connecting");
+            return;
+        }
+        // Таймер (после полной расшифровки — стоит).
+        if (cipTimerBase > 0) {
+            long now = cipComplete ? cipStopAt : System.currentTimeMillis();
+            long left = Math.max(0, cipSeconds * 1000L - (now - cipTimerBase));
+            String tm = String.format("%d:%02d", left / 60000, (left / 1000) % 60);
+            g.drawString(font, tm, sx + sw - font.width(tm) - 4, sy + 2, retro ? Ui.SCREEN : (left < 10000 ? Ui.RED : Ui.DIM), false);
+        }
+        int n = Cipher.N;
+        int gx = sx + 5, gy = sy + 15, cw2 = Math.min(22, (sw / 2 - 14) / n), chh = 13;
+        // Матрица.
+        for (int r = 0; r < n; r++) {
+            for (int c = 0; c < n; c++) {
+                int cell = r * n + c;
+                int x = gx + c * cw2, y = gy + r * chh;
+                boolean picked = cipPicks.contains(cell);
+                boolean allowed = !cipComplete && cipherAllowed(cell);
+                boolean hov = cipHover == cell && allowed;
+                String v = cell < cipMatrix.length ? cipMatrix[cell] : "";
+                if (allowed && !retro) g.fill(x, y, x + cw2 - 1, y + chh - 1, Ui.PANEL);
+                if (hov) g.fill(x, y, x + cw2 - 1, y + chh - 1, retro ? Ui.TEXT : Ui.ACCENT);
+                int col = picked ? Ui.HINT : hov ? (retro ? Ui.SCREEN : 0xFFFFFFFF) : allowed ? Ui.TEXT : Ui.DIM;
+                String show = picked ? "." : v;
+                g.drawString(font, show, x + (cw2 - font.width(show)) / 2, y + 3, col, false);
+                if (allowed && !picked) {
+                    int cell2 = cell;
+                    hots.add(new Hot(x, y, cw2, chh, "cip" + cell, null, () -> {
+                        Sfx.play(Sfx.CLICK);
+                        send("cipher.pick", t -> t.putInt("cell", cell2));
+                    }));
+                }
+            }
+        }
+        // Буфер.
+        int bx = gx + n * cw2 + 10, by = sy + 15;
+        g.drawString(font, Ui.up(Component.translatable("rppda.cipher.buffer").getString()), bx, by, Ui.DIM, false);
+        for (int i = 0; i < cipBuffer; i++) {
+            int x = bx + i * 25, y = by + 11;
+            boolean full = i < cipPicks.size();
+            if (!retro && full) g.fill(x, y, x + 21, y + 14, Ui.PANEL);
+            g.renderOutline(x, y, 22, 14, full ? Ui.ACCENT : Ui.SEP);
+            if (full) {
+                String v = cipMatrix[cipPicks.get(i)];
+                g.drawString(font, v, x + (22 - font.width(v)) / 2, y + 4, Ui.TEXT, false);
+            }
+        }
+        // Ключи (последовательности) — ниже буфера.
+        int ky = by + 33;
+        g.drawString(font, Ui.up(Component.translatable("rppda.cipher.parts").getString()), bx, ky, Ui.DIM, false);
+        int py = ky + 12;
+        for (CompoundTag s : cipSeqs) {
+            boolean done = s.getBoolean("done");
+            String[] codes = s.getString("codes").split(" ");
+            int right = sx + sw - 6;
+            if (!retro) g.fill(bx - 2, py - 1, right, py + 10, done ? Ui.OWN : Ui.PANEL);
+            else if (done) g.fill(bx - 2, py - 1, right, py + 9, Ui.TEXT);
+            int x = bx;
+            for (String code : codes) {
+                g.drawString(font, code, x, py, done ? (retro ? Ui.SCREEN : Ui.GREEN) : Ui.TEXT, false);
+                x += 20;
+            }
+            String lab = Ui.up(Component.translatable("rppda.cipher.part", s.getInt("part") + 1).getString());
+            g.drawString(font, lab, right - font.width(lab) - 2, py, done ? (retro ? Ui.SCREEN : Ui.GREEN) : Ui.DIM, false);
+            py += 12;
+        }
+        // Текст заметки.
+        int ty = gy + n * chh + 6;
+        g.fill(sx + 4, ty - 3, sx + sw - 4, ty - 2, Ui.SEP);
+        int maxLines = (sy + sh - 3 - ty) / 10;
+        for (String line : cipherPreview(sw - 12, maxLines)) {
+            txt(g, line, sx + 6, ty, Ui.DIM, false);
+            ty += 10;
+        }
+        if (cipComplete) {
+            // Файл расшифрован: ходов нет, кнопка «ОК» — в rebuild.
+            int cy2 = sy + sh / 2;
+            g.fill(sx + 20, cy2 - 12, sx + sw - 20, cy2 + 6, Ui.BAR);
+            drawCentered(g, Component.translatable("rppda.cipher.complete"), cy2 - 7, retro ? Ui.SCREEN : Ui.GREEN);
+        }
+    }
+
+    private String cipherTitle() {
+        for (CompoundTag n : notes) if (n.getInt("id") == cipNote) return n.getString("title");
+        return "";
+    }
+
+    /** Разрешён ли ход в клетку: первый — верхняя строка, дальше по очереди столбец → строка. */
+    private boolean cipherAllowed(int cell) {
+        int n = Cipher.N;
+        if (cipPicks.contains(cell)) return false;
+        if (cipPicks.isEmpty()) return cell / n == 0;
+        int last = cipPicks.get(cipPicks.size() - 1);
+        boolean column = cipPicks.size() % 2 == 1;
+        return column ? cell % n == last % n : cell / n == last / n;
+    }
+
+    /**
+     * Текст под матрицей: помещается — обычным текстом, части подряд. Нет — каждая часть с новой строки; часть, что не
+     * влезает в 2 строки, обрезается до двух и в её конце — «<...>».
+     */
+    private List<String> cipherPreview(int width, int maxLines) {
+        List<String> out = new ArrayList<>();
+        CompoundTag note = null;
+        for (CompoundTag nn : notes) if (nn.getInt("id") == cipNote) note = nn;
+        if (note == null) return out;
+        String text = note.getString("text");
+        List<int[]> all = NoteArea.wrap(font, text, width);
+        if (all.size() <= maxLines) {
+            for (int[] l : all) out.add(text.substring(l[0], l[1]));
+            return out;
+        }
+        int[] b = note.contains("bounds") ? note.getIntArray("bounds") : faygolover.rppda.data.Note.bounds(text);
+        String more = " <...>";
+        for (int p = 0; p < 3 && p + 1 < b.length; p++) {
+            String part = text.substring(Math.min(b[p], text.length()), Math.min(b[p + 1], text.length())).strip();
+            List<int[]> lines = NoteArea.wrap(font, part, width);
+            if (lines.size() <= 2) {
+                for (int[] l : lines) out.add(part.substring(l[0], l[1]));
+                continue;
+            }
+            out.add(part.substring(lines.get(0)[0], lines.get(0)[1]));
+            String second = part.substring(lines.get(1)[0], lines.get(1)[1]);
+            out.add(Ui.fit(font, second, width - font.width(more)).replace("…", "") + more);
+        }
+        return out;
+    }
+
+    // ---------------------------------------------------------------- шифрование (анимация)
+
+    private void renderEncrypt(GuiGraphics g) {
+        g.fill(sx, sy, sx + sw, sy + (retro ? 11 : 12), Ui.BAR);
+        g.drawString(font, Ui.up(Component.translatable("rppda.enc.title").getString()), sx + 3, sy + 2, retro ? Ui.SCREEN : Ui.TEXT, false);
+        long dt = since(insertAt) - INSERT_MS;
+        if (dt < 0) return;
+        float prog = Math.min(1f, dt / (float) ENCRYPT_MS);
+        int dots = (int) (dt / 300) % 4;
+        drawCentered(g, Component.literal(Ui.up(Component.translatable("rppda.enc.working").getString()) + ".".repeat(dots)), sy + 18, Ui.ACCENT);
+        // Текст «цифрового дождя»: маска проявляется сверху вниз по мере прогресса.
+        List<int[]> lines = NoteArea.wrap(font, encMask, sw - 16);
+        int rows = Math.min(lines.size(), (sy + sh - 20 - (sy + 32)) / 10);
+        int ly = sy + 34;
+        java.util.Random rnd = new java.util.Random(encNote);
+        for (int i = 0; i < rows; i++, ly += 10) {
+            int[] l = lines.get(i);
+            String masked = encMask.substring(l[0], l[1]);
+            float lineProg = Math.min(1f, Math.max(0f, prog * rows - i));
+            StringBuilder sb = new StringBuilder();
+            for (int k = 0; k < masked.length(); k++) {
+                char ch = masked.charAt(k);
+                if (ch == ' ') sb.append(' ');
+                else if (k < masked.length() * lineProg) sb.append(ch);
+                else sb.append("ABCDEFGHJKLMNPQRSTUVWXYZ0123456789".charAt(rnd.nextInt(34)));
+            }
+            txt(g, sb.toString(), sx + 8, ly, lineProg >= 1 ? Ui.TEXT : Ui.DIM, false);
+        }
+        int bw = sw - 60, bx = sx + 30;
+        g.renderOutline(bx, sy + sh - 16, bw, 6, Ui.DIM);
+        g.fill(bx, sy + sh - 16, bx + (int) (bw * prog), sy + sh - 10, Ui.ACCENT);
     }
 
     /** Обрезка одной строки по ширине (для цитат). */

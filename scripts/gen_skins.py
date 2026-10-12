@@ -125,17 +125,42 @@ def sunset(img):
 
 
 def neon(img):
+    """Синтвэйв: горизонт чуть выше рамки экрана (виден по бокам), над ним закатное свечение; сетка вдали реже и
+    тусклее — не сливается; всё внутри голубой рамки."""
     d = ImageDraw.Draw(img)
-    d.rectangle([0, 0, W, H], fill=(24, 8, 44))
+    bg, floor, pink, cyan = (24, 8, 44), (18, 5, 36), (255, 40, 180), (0, 230, 255)
+    hz = BOTTOM - 12
+    d.rectangle([0, 0, W, H], fill=bg)
+    for i, c in enumerate([(70, 14, 80), (110, 20, 110), (170, 30, 140)]):
+        d.line([(0, hz - 3 + i), (W, hz - 3 + i)], fill=c)
+    d.rectangle([0, hz, W, H], fill=floor)
+    depth = H - hz
+    far = (96, 18, 96)
+
+    def col(y):
+        t = min(1.0, ((y - hz) / depth) ** 0.6)
+        return tuple(int(a + (b - a) * t) for a, b in zip(far, pink))
+
     vx = W // 2
-    for i in range(-16, 17):
-        d.line([(vx + i * 8, BOTTOM), (vx + i * 40, H)], fill=(255, 40, 180))
-    y, step = BOTTOM, 2
-    while y < H:
-        d.line([(0, y), (W, y)], fill=(255, 40, 180))
-        y += step
-        step += 2
-    d.rectangle([1, 1, W - 2, H - 2], outline=(0, 230, 255))
+    for i in range(-13, 14):
+        prev = None
+        for y in range(hz, H):
+            t = (y - hz) / depth
+            x = round(vx + i * (14 + 34 * t))
+            if prev:
+                d.line([prev, (x, y)], fill=col(y))
+            prev = (x, y)
+    k = 1
+    while True:
+        y = hz + k * (k + 5) // 2
+        if y >= H:
+            break
+        d.line([(0, y), (W, y)], fill=col(y))
+        k += 1
+    d.line([(0, hz), (W, hz)], fill=(255, 130, 220))
+    # Рамка — край корпуса; снаружи — только фон.
+    d.rectangle([0, 0, W - 1, H - 1], outline=bg)
+    d.rectangle([1, 1, W - 2, H - 2], outline=cyan)
 
 
 def memphis(img):

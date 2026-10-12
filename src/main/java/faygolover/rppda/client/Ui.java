@@ -125,11 +125,12 @@ public final class Ui {
         KICK, CROWN, REPLY, TRASH, COPY, KEY, SILENT, SOUND,
         ACCOUNTS, LOG, SWITCH, GIVE, TELEPORT, EDIT, BLOCK, CHECK,
         SEARCH, MESSAGE, PDA, REFRESH, PERSON_ADD, SYSTEM, GLOBE, EYE,
-        BRUSH, SIGNAL, NO_SIGNAL, MASK, NOTE
+        BRUSH, SIGNAL, NO_SIGNAL, MASK, NOTE, SAVE
     }
 
     public static void icon(GuiGraphics g, Icon icon, int x, int y, int color) {
-        iconFrom(g, retro ? ICONS_RETRO : ICONS, icon, x, y, color);
+        // Оба вида — попиксельные ретро-значки: чёткие при любом масштабе.
+        iconFrom(g, ICONS_RETRO, icon, x, y, color);
     }
 
     public static void iconFrom(GuiGraphics g, ResourceLocation atlas, Icon icon, int x, int y, int color) {
@@ -142,31 +143,38 @@ public final class Ui {
     }
 
     /**
-     * Значок заданного размера. Ретро не масштабирует дробно (иначе пиксели «плывут»): 1:1 с тем же центром,
+     * Значок заданного размера. Значки попиксельные — дробно не масштабируются (иначе «плывут»): 1:1 с тем же центром,
      * крупные (от 24) — ровно ×2.
      */
     public static void icon(GuiGraphics g, Icon icon, int x, int y, int size, int color) {
-        if (retro) {
-            int scale = size >= 24 ? 2 : 1;
-            int cx = x + size / 2, cy = y + size / 2;
-            g.pose().pushPose();
-            g.pose().translate(cx - 8 * scale, cy - 8 * scale, 0);
-            g.pose().scale(scale, scale, 1);
-            icon(g, icon, 0, 0, color);
-            g.pose().popPose();
-            return;
-        }
+        int scale = size >= 24 ? 2 : 1;
+        int cx = x + size / 2, cy = y + size / 2;
         g.pose().pushPose();
-        g.pose().translate(x, y, 0);
-        g.pose().scale(size / 16f, size / 16f, 1);
+        g.pose().translate(cx - 8 * scale, cy - 8 * scale, 0);
+        g.pose().scale(scale, scale, 1);
         icon(g, icon, 0, 0, color);
         g.pose().popPose();
+    }
+
+    /** Поле ввода Minecraft со звуком КПК при щелчке (а не ванильным). */
+    public static class Box extends net.minecraft.client.gui.components.EditBox {
+        public Box(Font font, int x, int y, int w, int h, Component name) {
+            super(font, x, y, w, h, name);
+        }
+
+        @Override
+        public void playDownSound(net.minecraft.client.sounds.SoundManager sounds) {
+            Sfx.play(Sfx.FOCUS, 0.4f);
+        }
     }
 
     /** Кнопка-значок. Название — подсказкой при наведении дольше секунды. */
     public static class IconButton extends Button {
         public Icon icon;
         public int color = TEXT;
+        /** Звук нажатия: свой или по значку (назад/закрыть — отмена, остальное — нажатие). */
+        @Nullable
+        public net.minecraft.sounds.SoundEvent click;
         @Nullable
         private final Component label;
 
@@ -199,6 +207,11 @@ public final class Ui {
             if (hot) g.renderOutline(x, y, width, height, TEXT);
             int c = !active ? DIM : color;
             icon(g, icon, x + (width - 16) / 2, y + (height - 16) / 2, c);
+        }
+
+        @Override
+        public void playDownSound(net.minecraft.client.sounds.SoundManager sounds) {
+            Sfx.play(click != null ? click : icon == Icon.BACK || icon == Icon.CLOSE ? Sfx.CANCEL : Sfx.PRESS, 0.5f);
         }
 
         public void retip(Component tooltip) {

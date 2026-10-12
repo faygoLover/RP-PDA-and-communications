@@ -17,7 +17,7 @@ import java.util.List;
 public final class Devices {
     private Devices() {}
 
-    public enum Status { NEW, OK, LOCKED, DISABLED, DELETED }
+    public enum Status { NEW, OK, LOCKED, DISABLED, DELETED, BURNED }
 
     /**
      * Все КПК игрока в порядке выбора активного: основная рука → вторая рука → слот Curios «КПК» (и другие слоты
@@ -71,6 +71,7 @@ public final class Devices {
         if (any != null && any.deleted) return Status.DELETED;
         Account a = store.account(acc);
         if (a == null || a.kind == Account.Kind.SYSTEM || PdaItem.issue(s) != a.issue) return Status.DISABLED;
+        if (a.burned) return Status.BURNED;
         return a.locked ? Status.LOCKED : Status.OK;
     }
 

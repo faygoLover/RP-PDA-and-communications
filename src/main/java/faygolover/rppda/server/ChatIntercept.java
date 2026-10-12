@@ -148,6 +148,17 @@ public final class ChatIntercept {
             if (lost[i]) lostN++;
         }
         if (lostN == 0) lost[rnd.nextInt(words.length)] = true;
+        if (words.length == 1) {
+            // Одно слово: слышен только его кусок.
+            String w = words[0];
+            // Совсем короткое — первая буква и обрыв, но не пустое «...».
+            if (w.length() <= 2) return w.substring(0, 1) + "...";
+            int keep = Math.max(1, w.length() / 2);
+            int at = rnd.nextInt(w.length() - keep + 1);
+            return (at > 0 ? "..." : "") + w.substring(at, at + keep) + (at + keep < w.length() ? "..." : "");
+        }
+        // Целиком фраза не пропадает: хоть одно слово, но слышно.
+        if (lostN >= words.length) lost[rnd.nextInt(words.length)] = false;
         StringBuilder sb = new StringBuilder();
         boolean gap = false;
         for (int i = 0; i < words.length; i++) {

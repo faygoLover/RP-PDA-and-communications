@@ -65,7 +65,7 @@ public final class PdaServer {
 
     /** Открытое окно КПК. */
     public static final class Session {
-        public enum Mode { REGISTER, LOCKED, OPEN }
+        public enum Mode { REGISTER, LOCKED, OPEN, HACK }
 
         Mode mode;
         boolean system;
@@ -130,6 +130,8 @@ public final class PdaServer {
         store = null;
         server = null;
         sessions.clear();
+        Hack.games.clear();
+        Cipher.games.clear();
         active.clear();
         holders.clear();
         failed.clear();
@@ -170,12 +172,17 @@ public final class PdaServer {
         UUID id = e.getEntity().getUUID();
         lockHeldBy(id);
         sessions.remove(id);
+        Hack.end(e.getEntity() instanceof ServerPlayer sp ? sp : null);
+        Cipher.end(id);
         active.remove(id);
         failed.remove(id);
     }
 
     private static void onDeath(LivingDeathEvent e) {
-        if (store != null && e.getEntity() instanceof ServerPlayer sp) lockHeldBy(sp.getUUID());
+        if (store != null && e.getEntity() instanceof ServerPlayer sp) {
+            lockHeldBy(sp.getUUID());
+            if (sessions.get(sp.getUUID()) != null && sessions.get(sp.getUUID()).mode == Session.Mode.HACK) close(sp);
+        }
     }
 
     private static void onToss(ItemTossEvent e) {
@@ -196,7 +203,7 @@ public final class PdaServer {
         Account first = null;
         for (ItemStack s : Devices.all(sp)) {
             Devices.Status st = Devices.status(s, store);
-            if (st == Devices.Status.NEW || st == Devices.Status.DISABLED || st == Devices.Status.DELETED) continue;
+            if (st == Devices.Status.NEW || st == Devices.Status.DISABLED || st == Devices.Status.DELETED || st == Devices.Status.BURNED) continue;
             Account a = store.account(PdaItem.account(s));
             if (a == null) continue;
             present.add(a.id);
@@ -221,6 +228,13 @@ public final class PdaServer {
         if (!java.util.Objects.equals(old, now)) Messaging.sendUnread(sp);
 
         Session s = sessions.get(id);
+        if (s != null && s.mode == Session.Mode.HACK) {
+            Hack.Game g = Hack.games.get(id);
+            if (g == null || !Hack.stillHolding(sp, g) || faygolover.rpcore.api.RpCoreAPI.unconscious(sp)) {
+                Hack.end(sp);
+                close(sp);
+            }
+        }
         if (s != null && s.mode == Session.Mode.OPEN) {
             boolean ok = s.system ? isGm(sp) && Devices.hasSystem(sp) : present.contains(s.device) && !lockedAcc(s.device);
             // Без сознания КПК не держат (системный — инструмент ГМа, ему можно).
@@ -264,6 +278,8 @@ public final class PdaServer {
 
     static void close(ServerPlayer sp) {
         sessions.remove(sp.getUUID());
+        Hack.end(sp);
+        Cipher.end(sp.getUUID());
         Net.send(sp, "close", new CompoundTag());
     }
 
@@ -383,6 +399,21 @@ public final class PdaServer {
             }
             case DISABLED -> actionbar(sp, "rppda.msg.disabled");
             case DELETED -> actionbar(sp, "rppda.msg.deleted");
+            case BURNED -> {
+                Session s = new Session();
+                s.mode = Session.Mode.LOCKED;
+                s.device = PdaItem.account(stack);
+                s.hand = hand;
+                sessions.put(sp.getUUID(), s);
+                Account a = store.account(s.device);
+                CompoundTag t = new CompoundTag();
+                t.putInt("id", s.device);
+                t.putString("name", a == null ? "" : a.name);
+                t.putBoolean("burned", true);
+                t.putString("style", PdaConfig.style);
+                if (a != null) t.put("look", a.look.save());
+                Net.send(sp, "locked", t);
+            }
             case LOCKED -> {
                 Account a = store.account(PdaItem.account(stack));
                 Session s = new Session();
@@ -396,6 +427,11 @@ public final class PdaServer {
                 t.putLong("wait", lockoutLeft(sp));
                 t.putString("style", PdaConfig.style);
                 t.put("look", a.look.save());
+                // Владельцу — был ли взлом, пока КПК был не у него.
+                if (a.hackNotice > 0 && sp.getUUID().equals(a.owner)) {
+                    t.putInt("hack", a.hackNotice);
+                    t.putLong("hackTime", a.hackTime);
+                }
                 Net.send(sp, "locked", t);
             }
             case OK -> open(sp, store.account(PdaItem.account(stack)));

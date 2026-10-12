@@ -41,7 +41,12 @@ public final class Actions {
         }
         switch (op) {
             case "open" -> PdaServer.openHotkey(sp);
-            case "close" -> PdaServer.sessions.remove(sp.getUUID());
+            case "close" -> {
+                PdaServer.sessions.remove(sp.getUUID());
+                Hack.end(sp);
+                Cipher.end(sp.getUUID());
+            }
+            case "hack.pick", "hack.enter" -> Hack.handle(sp, op, d);
             case "register" -> register(sp, store);
             case "register.npc" -> registerNpc(sp, store, d.getString("name").strip());
             case "unlock" -> unlock(sp, store, d.getString("pw"));
@@ -133,6 +138,7 @@ public final class Actions {
             PdaServer.close(sp);
             return;
         }
+        if (a.burned) return;
         if (!a.locked || !a.hasPassword()) {
             a.locked = false;
             PdaServer.open(sp, a);
@@ -140,6 +146,8 @@ public final class Actions {
         }
         if (!checkPassword(sp, a, pw)) return;
         a.locked = false;
+        a.pwLen = pw.length();
+        if (sp.getUUID().equals(a.owner)) a.hackNotice = 0;
         store.markAccounts();
         PdaServer.holders.put(a.id, sp.getUUID());
         PdaServer.open(sp, a);
@@ -236,6 +244,9 @@ public final class Actions {
                 sendRow(sp, s, store, me, c);
             }
             case "notes.list" -> sendNotes(sp, me);
+            case "notes.encrypt" -> Cipher.encrypt(sp, store, me, d.getInt("id"));
+            case "cipher.start" -> Cipher.start(sp, store, me, d.getInt("id"));
+            case "cipher.pick", "cipher.timeout", "cipher.quit" -> Cipher.handle(sp, store, me, op, d);
             case "notes.save" -> {
                 String title = d.getString("title").strip(), text = d.getString("text");
                 if (title.isEmpty()) title = Note.firstLine(text);
@@ -244,6 +255,8 @@ public final class Actions {
                 int id = d.getInt("id");
                 Note n = null;
                 for (Note o : me.notes) if (o.id == id) n = o;
+                // Полученные заметки не меняются (только удалить); зашифрованную чужую — тоже нельзя.
+                if (n != null && (n.from != null || !Cipher.readable(sp, me, n))) return;
                 if (n == null) {
                     if (me.notes.size() >= Note.LIMIT) {
                         toast(sp, "rppda.err.notes_full", true);
@@ -278,7 +291,8 @@ public final class Actions {
                     toast(sp, err, true);
                     return;
                 }
-                Messaging.post(c, me, n.title + "\n" + n.text, 0, Message.NOTE, s.system ? sp.getGameProfile().getName() : null, null);
+                Messaging.post(c, me, n.title + "\n" + n.text, 0, Message.NOTE | (n.cipher && !n.fullyOpened() ? Message.CIPHER : 0),
+                        s.system ? sp.getGameProfile().getName() : null, null);
                 toast(sp, "rppda.toast.note_shared", false);
             }
             case "notes.accept" -> {
@@ -294,6 +308,7 @@ public final class Actions {
                 Note n = new Note(me.nextNote++, nl < 0 ? m.text : m.text.substring(0, nl), nl < 0 ? "" : m.text.substring(nl + 1));
                 n.created = n.updated = System.currentTimeMillis();
                 n.from = Views.nameFor(store, me, m.sender);
+                n.cipher = m.has(Message.CIPHER);
                 me.notes.add(n);
                 store.markAccounts();
                 toast(sp, "rppda.toast.note_added", false);
@@ -373,6 +388,7 @@ public final class Actions {
                 } else {
                     me.pwSalt = Passwords.newSalt();
                     me.pwHash = Passwords.hash(pw, me.pwSalt);
+                    me.pwLen = pw.length();
                     PdaServer.holders.put(me.id, sp.getUUID());
                     toast(sp, "rppda.toast.password_set", false);
                 }
@@ -451,9 +467,9 @@ public final class Actions {
         Net.send(sp, "history", t);
     }
 
-    private static void sendNotes(ServerPlayer sp, Account me) {
+    static void sendNotes(ServerPlayer sp, Account me) {
         ListTag l = new ListTag();
-        for (int i = me.notes.size() - 1; i >= 0; i--) l.add(me.notes.get(i).save());
+        for (int i = me.notes.size() - 1; i >= 0; i--) l.add(Cipher.view(sp, me, me.notes.get(i)));
         CompoundTag t = new CompoundTag();
         t.put("list", l);
         Net.send(sp, "notes", t);
@@ -709,6 +725,8 @@ public final class Actions {
                 String q = d.getString("q").strip().toLowerCase(Locale.ROOT);
                 List<Account> list = new ArrayList<>();
                 for (Account a : store.accounts.values()) {
+                    // Удалённые учётки остаются в хранилище (подпись «Удалённая учётка» в группах), но не в списке.
+                    if (a.deleted) continue;
                     if (q.isEmpty() || a.name.toLowerCase(Locale.ROOT).contains(q)
                             || String.format("%08d", a.id).contains(q.replace(" ", ""))) list.add(a);
                 }
@@ -765,6 +783,7 @@ public final class Actions {
                 Account a = target(store, d);
                 if (a == null) return;
                 a.issue++;
+                a.burned = false;
                 if (a.hasPassword()) a.locked = true;
                 PdaServer.holders.remove(a.id);
                 store.markAccounts();

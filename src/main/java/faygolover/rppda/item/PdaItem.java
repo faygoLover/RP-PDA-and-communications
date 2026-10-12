@@ -30,7 +30,12 @@ public class PdaItem extends Item {
     @Override
     public InteractionResultHolder<ItemStack> use(Level level, Player player, InteractionHand hand) {
         ItemStack stack = player.getItemInHand(hand);
-        if (player instanceof ServerPlayer sp) PdaServer.openFromHand(sp, hand);
+        if (player instanceof ServerPlayer sp) {
+            // Во второй руке отмычка, а КПК заперт — это взлом (отмычка в любой руке).
+            if (faygolover.rppda.server.Hack.wantsHack(sp, hand))
+                faygolover.rppda.server.Hack.start(sp, hand == InteractionHand.MAIN_HAND ? InteractionHand.OFF_HAND : InteractionHand.MAIN_HAND);
+            else PdaServer.openFromHand(sp, hand);
+        }
         return InteractionResultHolder.sidedSuccess(stack, level.isClientSide);
     }
 

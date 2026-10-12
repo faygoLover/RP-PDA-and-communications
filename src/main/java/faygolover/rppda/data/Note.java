@@ -16,6 +16,12 @@ public final class Note {
     public long updated;
     @Nullable
     public String from;
+    /** Зашифрована: без расшифровки её читают только владелец учётки (своя заметка) и ГМ. */
+    public boolean cipher;
+    /** Какие из трёх частей уже расшифрованы (биты 0–2). */
+    public int opened;
+
+    public static final int PARTS = 3;
 
     public Note(int id, String title, String text) {
         this.id = id;
@@ -39,6 +45,10 @@ public final class Note {
         t.putLong("created", created);
         t.putLong("updated", updated);
         if (from != null) t.putString("from", from);
+        if (cipher) {
+            t.putBoolean("cipher", true);
+            t.putInt("opened", opened);
+        }
         return t;
     }
 
@@ -47,6 +57,37 @@ public final class Note {
         n.created = t.getLong("created");
         n.updated = t.getLong("updated");
         if (t.contains("from")) n.from = t.getString("from");
+        n.cipher = t.getBoolean("cipher");
+        n.opened = t.getInt("opened");
         return n;
+    }
+
+    public boolean fullyOpened() {
+        return opened == (1 << PARTS) - 1;
+    }
+
+    /** Границы трёх равных частей текста (по символам): [0, a), [a, b), [b, len). */
+    public static int[] bounds(String text) {
+        int len = text.length();
+        return new int[]{0, len / 3, len * 2 / 3, len};
+    }
+
+    /**
+     * Текст для того, кто не может читать без расшифровки: неоткрытые части — случайные буквы и цифры той же
+     * длины (пробелы и переносы на месте), всегда одни и те же для этой заметки.
+     */
+    public String masked() {
+        int[] b = bounds(text);
+        java.util.Random rnd = new java.util.Random(id * 31L + created);
+        String abc = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        StringBuilder sb = new StringBuilder(text.length());
+        for (int i = 0; i < text.length(); i++) {
+            char ch = text.charAt(i);
+            int part = i < b[1] ? 0 : i < b[2] ? 1 : 2;
+            char r = abc.charAt(rnd.nextInt(abc.length()));
+            if ((opened & (1 << part)) != 0 || ch == ' ' || ch == '\n') sb.append(ch);
+            else sb.append(r);
+        }
+        return sb.toString();
     }
 }

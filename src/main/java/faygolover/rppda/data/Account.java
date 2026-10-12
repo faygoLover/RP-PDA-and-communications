@@ -55,6 +55,13 @@ public final class Account {
     public boolean deleted;
     /** Приглашения в группы (ID чатов). */
     public final Set<Integer> invites = new HashSet<>();
+    /** Длина пароля (для сложности взлома; сам пароль не хранится), 0 — неизвестна. */
+    public int pwLen;
+    /** Что увидит владелец при входе: 0 — ничего, 1 — «пытались взломать», 2 — «взломали»; когда. */
+    public int hackNotice;
+    public long hackTime;
+    /** Попытки взлома кончились: эта выдача КПК мертва до перевыпуска ГМом. */
+    public boolean burned;
 
     public Account(int id, Kind kind, String name) {
         this.id = id;
@@ -108,6 +115,12 @@ public final class Account {
         t.putInt("nextNote", nextNote);
         if (deleted) t.putBoolean("deleted", true);
         t.put("invites", new IntArrayTag(invites.stream().mapToInt(Integer::intValue).toArray()));
+        if (pwLen > 0) t.putInt("pwLen", pwLen);
+        if (hackNotice > 0) {
+            t.putInt("hackNotice", hackNotice);
+            t.putLong("hackTime", hackTime);
+        }
+        if (burned) t.putBoolean("burned", true);
         return t;
     }
 
@@ -151,6 +164,10 @@ public final class Account {
         a.nextNote = Math.max(1, t.getInt("nextNote"));
         a.deleted = t.getBoolean("deleted");
         for (int i : t.getIntArray("invites")) a.invites.add(i);
+        a.pwLen = t.getInt("pwLen");
+        a.hackNotice = t.getInt("hackNotice");
+        a.hackTime = t.getLong("hackTime");
+        a.burned = t.getBoolean("burned");
         return a;
     }
 }
