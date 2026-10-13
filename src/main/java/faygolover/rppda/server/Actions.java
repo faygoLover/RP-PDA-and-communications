@@ -407,13 +407,12 @@ public final class Actions {
                 if (mode < Account.AV_FACE || mode > Account.AV_PICTURE) return;
                 // Портрет — фото скина владельца (у NPC владельца нет).
                 if (mode == Account.AV_PORTRAIT && me.owner == null) return;
-                // Своя картинка: новая — в этом же действии; без новой — только если уже загружена.
-                if (d.contains("png") && !AvatarPics.upload(sp, store, me, d.getByteArray("png"))) return;
-                if (mode == Account.AV_PICTURE && me.avatarPic == 0) return;
                 int color = d.getInt("color");
-                me.avatar = mode;
                 me.avatarColor = color >= 0 && color < Account.AV_COLORS ? color : -1;
                 me.avatarMark = avatarMark(d.getString("mark"));
+                // Новая картинка: вид «Картинка» — когда Core её примет (AvatarPics.onChanged).
+                if (mode == Account.AV_PICTURE && d.getBoolean("upload")) AvatarPics.begin(sp, me);
+                else if (mode != Account.AV_PICTURE || me.avatarPic > 0) me.avatar = mode;
                 store.markAccounts();
                 Views.sendState(sp, s);
             }
@@ -432,7 +431,6 @@ public final class Actions {
                 Net.send(sp, "avatars", t);
             }
             case "nearby", "nearby.offer", "nearby.accept", "nearby.decline" -> Nearby.handle(sp, s, store, me, op, d);
-            case "avatar.pic" -> AvatarPics.query(sp, store, d.getInt("id"));
             default -> {}
         }
     }
@@ -848,7 +846,7 @@ public final class Actions {
             case "sys.avatar_reset" -> {
                 Account a = target(store, d);
                 if (a == null || a.avatarPic == 0) return;
-                AvatarPics.remove(store, a);
+                AvatarPics.remove(a);
                 store.markAccounts();
                 store.gmLog(gm, "avatar_reset", label(a));
                 refreshAccount(sp, store, a);

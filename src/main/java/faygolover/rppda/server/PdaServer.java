@@ -91,6 +91,7 @@ public final class PdaServer {
         bus.addListener(PdaServer::onLogout);
         bus.addListener(PdaServer::onDeath);
         bus.addListener(PdaServer::onToss);
+        bus.addListener(AvatarPics::onChanged);
     }
 
     @Nullable

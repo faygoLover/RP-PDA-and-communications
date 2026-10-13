@@ -64,7 +64,7 @@ L = {
     "rppda.err.avatar_no_file": ("Сначала выберите файл", "Choose a file first"),
     "rppda.err.avatar_pick": ("Окно выбора файла не открылось", "The file dialog did not open"),
     "rppda.err.avatar_file": ("Этот файл не подходит: нужна картинка PNG, JPG или BMP", "This file won't do: use a PNG, JPG or BMP picture"),
-    "rppda.err.avatar_bad": ("Сервер не принял картинку", "The server rejected the picture"),
+    "rppda.toast.avatar_saved": ("Картинка сохранена", "Picture saved"),
     "rppda.err.avatar_too_soon": ("Картинку можно сменить через %s с", "You can change the picture in %s s"),
     "rppda.avatar.hint": ("«Лицо» — лицо по скину, пока вы в сети. «Портрет» — снимок скина, виден и когда вас нет. "
                           "«Картинка» — файл с компьютера (обрежется до квадрата). Пока лица или картинки нет — знаки на цвете: "

@@ -1,11 +1,11 @@
 package faygolover.rppda.client;
 
 import com.mojang.blaze3d.platform.NativeImage;
+import faygolover.rpcore.client.photo.ClientPictures;
 import faygolover.rppda.RpPda;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.renderer.texture.DynamicTexture;
-import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
 import org.jetbrains.annotations.Nullable;
 import org.lwjgl.PointerBuffer;
@@ -18,57 +18,46 @@ import java.awt.Image;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.function.Consumer;
 
 /**
- * Свои картинки-аватарки (§7.6): по ID учётки и номеру картинки — у сервера, кэш текстур до смены номера или выхода.
- * Выбор файла с компьютера: окно выбора, квадрат по центру, 64×64 PNG.
+ * Свои картинки-аватарки (§7.6). Хранит и раздаёт RP Core (картинки по ключу {@code rppda:avatar/<ID>}); здесь —
+ * показ, выбор файла с компьютера (квадрат по центру, 64×64 PNG) и отправка, когда сервер разрешил.
  */
 public final class AvatarPics {
     private AvatarPics() {}
 
     public static final int SIZE = 64;
+    /** Пакет к серверу в Minecraft — до 32 КБ; картинка 64×64 в PNG — не больше ~17 КБ. */
     public static final int MAX_BYTES = 20000;
     /** Больше — не читаем (картинка всё равно уменьшится до 64×64). */
     private static final long MAX_FILE = 20L * 1024 * 1024;
-    private static final long RETRY_MS = 10_000L;
 
-    private static final class Entry {
-        int version;
-        long askedAt;
-        @Nullable ResourceLocation texture;
-    }
-
-    private static final Map<Integer, Entry> cache = new HashMap<>();
+    /** Картинка, ждущая разрешения сервера на загрузку. */
+    @Nullable
+    private static byte[] outgoing;
 
     /** Нарисовать картинку учётки; false — нет или ещё не пришла (рисуется запасной вид). */
     public static boolean draw(GuiGraphics g, int id, int version, int x, int y, int size) {
-        if (version <= 0 || Minecraft.getInstance().getConnection() == null) return false;
-        Entry e = cache.computeIfAbsent(id, k -> new Entry());
-        long now = System.currentTimeMillis();
-        if (e.version != version && (e.askedAt == 0 || now - e.askedAt > RETRY_MS)) {
-            e.askedAt = now;
-            CompoundTag t = new CompoundTag();
-            t.putInt("id", id);
-            ClientPda.send("avatar.pic", t);
-        }
-        if (e.texture == null) return false;
-        g.blit(e.texture, x, y, size, size, 0, 0, SIZE, SIZE, SIZE, SIZE);
-        return true;
+        return version > 0 && ClientPictures.draw(g, "rppda:avatar/" + id, x, y, size, size);
     }
 
-    static void receive(CompoundTag d) {
-        Entry e = cache.computeIfAbsent(d.getInt("id"), k -> new Entry());
-        release(e);
-        e.version = d.getInt("v");
-        e.askedAt = 0;
-        byte[] png = d.getByteArray("png");
-        if (png.length > 0) e.texture = register(png);
+    /** «Готово» с новым файлом: запомнить, отправить, когда сервер пришлёт ключ. */
+    static void queue(byte[] png) {
+        outgoing = png;
     }
 
-    /** Текстура из PNG (предпросмотр и кэш); null — не читается. */
+    /** Сервер разрешил: отправить в Core. */
+    static void upload(String key) {
+        if (outgoing != null) ClientPictures.upload(key, outgoing);
+        outgoing = null;
+    }
+
+    static void clear() {
+        outgoing = null;
+    }
+
+    /** Текстура из PNG для предпросмотра; null — не читается. */
     @Nullable
     static ResourceLocation register(byte[] png) {
         try {
@@ -82,16 +71,6 @@ public final class AvatarPics {
 
     static void release(@Nullable ResourceLocation tex) {
         if (tex != null) Minecraft.getInstance().getTextureManager().release(tex);
-    }
-
-    private static void release(Entry e) {
-        release(e.texture);
-        e.texture = null;
-    }
-
-    static void clear() {
-        cache.values().forEach(AvatarPics::release);
-        cache.clear();
     }
 
     /**

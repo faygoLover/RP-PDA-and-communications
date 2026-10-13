@@ -1888,12 +1888,13 @@ public class PdaScreen extends Screen {
                 return;
             }
             String mark = avMarkBox == null ? editAvMark : avMarkBox.getValue();
-            byte[] png = editAv == 3 ? pendingPng : null;
+            boolean upload = editAv == 3 && pendingPng != null;
+            if (upload) AvatarPics.queue(pendingPng);
             send("profile.avatar", t -> {
                 t.putInt("mode", editAv);
                 t.putInt("color", editAvColor);
                 t.putString("mark", mark);
-                if (png != null) t.putByteArray("png", png);
+                t.putBoolean("upload", upload);
             });
             setPage(Page.PROFILE);
         });

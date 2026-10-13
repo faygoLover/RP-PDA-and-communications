@@ -27,7 +27,7 @@ public final class ClientPda {
                 if (c != null) mc.gui.getChat().addMessage(c, null, TAG);
             }
             case "avatars" -> Avatars.receive(d);
-            case "avatar.pic" -> AvatarPics.receive(d);
+            case "avatar.upload" -> AvatarPics.upload(d.getString("key"));
             case "close" -> {
                 if (mc.screen instanceof PdaScreen) mc.setScreen(null);
             }
