@@ -62,12 +62,12 @@ public final class Memory {
         return s != null && !s.system && s.device == a.id ? s.historyBytes : 0;
     }
 
-    static int used(Account a, @Nullable PdaServer.Session s) {
+    public static int used(Account a, @Nullable PdaServer.Session s) {
         return stored(a) + history(a, s);
     }
 
     /** Объём КПК: своя память и платы в ячейках. */
-    static int capacity(@Nullable ItemStack device) {
+    public static int capacity(@Nullable ItemStack device) {
         int c = PdaConfig.retroMemory;
         if (device != null) for (int kb : PdaItem.slots(device)) c += kb * 1024;
         return c;

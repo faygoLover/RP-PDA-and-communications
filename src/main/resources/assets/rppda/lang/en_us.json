@@ -454,5 +454,7 @@
   "rppda.note.downloading": "Downloading… %s%%",
   "rppda.note.broken": "Broken file: %s of %s",
   "rppda.note.cant_open": "The file is broken — can't open",
-  "rppda.note.cant_open_dl": "Still downloading"
+  "rppda.note.cant_open_dl": "Still downloading",
+  "rppda.mem.ok": "OK",
+  "rppda.size.point": "."
 }

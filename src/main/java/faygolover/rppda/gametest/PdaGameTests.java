@@ -447,6 +447,8 @@ public final class PdaGameTests {
 
     @GameTest(template = T)
     public static void notesShareAndAccept(GameTestHelper h) {
+        // Старый способ (сразу, без передачи рядом) — при выключенных реалистичных ретро-КПК.
+        faygolover.rppda.config.PdaConfig.realisticRetro = false;
         ServerPlayer a = player(h), b = player(h);
         Account aa = register(h, a), bb = register(h, b);
         startDm(a, aa, bb, "привет");

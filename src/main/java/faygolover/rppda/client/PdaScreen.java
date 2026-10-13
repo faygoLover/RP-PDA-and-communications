@@ -609,6 +609,8 @@ public class PdaScreen extends Screen {
         if (bytes < 1024) return Component.translatable("rppda.size.b", bytes).getString();
         String kb = String.format(java.util.Locale.ROOT, "%.1f", bytes / 1024f);
         if (kb.endsWith(".0")) kb = kb.substring(0, kb.length() - 2);
+        // Дробная часть — как принято в языке игры (по-русски — запятая).
+        kb = kb.replace(".", Component.translatable("rppda.size.point").getString());
         return Component.translatable("rppda.size.kb", kb).getString();
     }
 
@@ -1480,7 +1482,7 @@ public class PdaScreen extends Screen {
             g.drawString(font, l, bx + 6, ly, Ui.TEXT, false);
             ly += 10;
         }
-        String ok = Ui.up(Component.translatable("rppda.btn.ok").getString());
+        String ok = Ui.up(Component.translatable("rppda.mem.ok").getString());
         int ow = font.width(ok) + 16, ox = bx + bw / 2 - ow / 2, oy = by + bh - 18;
         boolean hot = mx >= ox && mx < ox + ow && my >= oy && my < oy + 13;
         g.fill(ox, oy, ox + ow, oy + 13, hot ? Ui.TEXT : retro ? Ui.SCREEN : Ui.ACCENT);
@@ -2275,7 +2277,7 @@ public class PdaScreen extends Screen {
     }
 
     private int slotY(int top) {
-        return top + 62;
+        return top + 76;
     }
 
     /** Профиль: «ПАМЯТЬ 1,4 / 2 КБ», полоса, из чего занято; ниже — 4 ячейки расширения. */
@@ -2293,14 +2295,14 @@ public class PdaScreen extends Screen {
         int fill = cap <= 0 ? bw - 2 : (int) Math.min(bw - 2, (long) (bw - 2) * used / cap);
         boolean blink = over && !admin && (System.currentTimeMillis() / 400) % 2 == 0;
         if (!blink) g.fill(x + 1, by + 1, x + 1 + fill, by + 5, over && !admin ? Ui.RED : Ui.TEXT);
-        // Из чего занято — две колонки.
+        // Из чего занято — столбиком: название слева, размер справа.
         String[][] parts = {{"rppda.mem.contacts", "contacts"}, {"rppda.mem.avatar", "avatar"},
                 {"rppda.mem.notes", "notes"}, {"rppda.mem.history", "history"}};
         for (int i = 0; i < parts.length; i++) {
-            int px = x + (i % 2) * (mw / 2), py = by + 10 + (i / 2) * 10;
+            int py = by + 10 + i * 10;
             String v = size(mem.getInt(parts[i][1]));
-            txt(g, fit(Component.translatable(parts[i][0]).getString(), mw / 2 - tw(v) - 6), px, py, Ui.DIM, false);
-            txt(g, v, px + mw / 2 - 4 - tw(v), py, Ui.TEXT, false);
+            txt(g, fit(Component.translatable(parts[i][0]).getString(), mw - tw(v) - 6), x, py, Ui.DIM, false);
+            txt(g, v, x + mw - tw(v), py, Ui.TEXT, false);
         }
         // Ячейки расширения: пусто — рамка; плата — её объём.
         txt(g, Component.translatable("rppda.mem.slots"), x, slotY(top) - 11, Ui.DIM, false);
