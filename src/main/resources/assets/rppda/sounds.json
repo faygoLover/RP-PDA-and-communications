@@ -87,6 +87,13 @@
       }
     ]
   },
+  "pda.modem": {
+    "sounds": [
+      {
+        "name": "rppda:pda/modem"
+      }
+    ]
+  },
   "pda.select_retro": {
     "sounds": [
       {

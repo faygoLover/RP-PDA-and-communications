@@ -16,7 +16,7 @@ public final class Sfx {
 
     public static final SoundEvent PRESS = ev("press"), CANCEL = ev("cancel"), SELECT = ev("select"), SELECT_RETRO = ev("select_retro"), PAGE = ev("page"),
             FOCUS = ev("focus"), CLICK = ev("click"), GOOD = ev("good"), BAD = ev("bad"), DONE = ev("done"),
-            INSERT = ev("insert"), WORK = ev("work");
+            INSERT = ev("insert"), WORK = ev("work"), MODEM = ev("modem");
 
     private static SoundEvent ev(String name) {
         return SoundEvent.createVariableRangeEvent(new ResourceLocation(RpPda.MODID, "pda." + name));
@@ -32,20 +32,27 @@ public final class Sfx {
 
     /** Долгая работа КПК: петля, плавно нарастает при старте и плавно стихает перед итогом. */
     public static final class Loop extends AbstractTickableSoundInstance {
-        private static final float MAX = 0.45f, STEP = MAX / 10f;
+        private final float max, step;
         private boolean fading;
 
-        private Loop(SoundEvent e) {
+        private Loop(SoundEvent e, float max) {
             super(e, SoundSource.MASTER, RandomSource.create());
             looping = true;
             delay = 0;
             volume = 0.01f;
+            this.max = max;
+            this.step = max / 10f;
             relative = true;
             attenuation = SoundInstance.Attenuation.NONE;
         }
 
         public static Loop start(SoundEvent e) {
-            Loop l = new Loop(e);
+            return start(e, 0.45f);
+        }
+
+        /** Петля с другой громкостью (модем при передаче файла — тихо). */
+        public static Loop start(SoundEvent e, float max) {
+            Loop l = new Loop(e, max);
             Minecraft.getInstance().getSoundManager().play(l);
             return l;
         }
@@ -57,7 +64,7 @@ public final class Sfx {
 
         @Override
         public void tick() {
-            volume = fading ? volume - STEP : Math.min(MAX, volume + STEP);
+            volume = fading ? volume - step : Math.min(max, volume + step);
             if (fading && volume <= 0.01f) stop();
         }
 

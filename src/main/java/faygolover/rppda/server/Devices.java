@@ -82,6 +82,13 @@ public final class Devices {
         return null;
     }
 
+    /** Экземпляр учётки у игрока (текущая выдача) — в нём ячейки расширения; null — нет при нём. */
+    @Nullable
+    public static ItemStack stackOf(ServerPlayer sp, Account a) {
+        for (ItemStack s : all(sp)) if (PdaItem.account(s) == a.id && PdaItem.issue(s) == a.issue) return s;
+        return null;
+    }
+
     /** Есть ли у игрока рабочий экземпляр этой учётки (заблокирован или нет). */
     public static boolean holds(ServerPlayer sp, Account a) {
         for (ItemStack s : all(sp)) if (PdaItem.account(s) == a.id && PdaItem.issue(s) == a.issue) return true;

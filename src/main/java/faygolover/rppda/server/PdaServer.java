@@ -75,6 +75,9 @@ public final class PdaServer {
         int acting;
         InteractionHand hand = InteractionHand.MAIN_HAND;
         int openChat = -1;
+        /** Память ретро-КПК: сколько истории открытого чата подгружено сверх первой страницы; дальше не влезло. */
+        int historyBytes;
+        boolean historyFull;
 
         boolean gmSwitched() {
             return system && acting != 0;
@@ -139,6 +142,7 @@ public final class PdaServer {
         lockoutUntil.clear();
         Messaging.reset();
         Nearby.reset();
+        Transfers.reset();
         AvatarPics.reset();
         if (io != null) io.shutdown();
         io = null;
@@ -155,7 +159,10 @@ public final class PdaServer {
         ticks++;
         if (ticks % PdaConfig.checkTicks == 0) for (ServerPlayer sp : server.getPlayerList().getPlayers()) scan(sp);
         if (ticks % PdaConfig.nameTicks == 0) refreshNames();
-        if (ticks % 20 == 0) Nearby.tick();
+        if (ticks % 20 == 0) {
+            Nearby.tick();
+            Transfers.tick();
+        }
         if (ticks % (PdaConfig.archiveMinutes * 1200L) == 0) {
             int moved = store.archiveOld();
             if (moved > 0) RpPda.LOGGER.info("RP PDA: в архив ушло кусков: {}", moved);

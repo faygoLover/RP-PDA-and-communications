@@ -164,7 +164,9 @@ public final class Messaging {
                     .append(Component.literal(name).withStyle(ChatFormatting.AQUA));
             default -> line.append(Component.literal(name).withStyle(ChatFormatting.AQUA));
         }
-        if (m.has(Message.NOTE)) line.append(Component.literal(": ").withStyle(ChatFormatting.GRAY))
+        if (m.has(Message.FILE)) line.append(Component.literal(": ").withStyle(ChatFormatting.GRAY))
+                .append(Component.translatable("rppda.xfer.line", PdaStore.fileTitle(m.text)).withStyle(ChatFormatting.GOLD));
+        else if (m.has(Message.NOTE)) line.append(Component.literal(": ").withStyle(ChatFormatting.GRAY))
                 .append(Component.translatable("rppda.note.line", m.text.split("\n", 2)[0]).withStyle(ChatFormatting.GOLD));
         else if (m.has(Message.ACTION)) line.append(Component.literal(" " + m.text).withStyle(ChatFormatting.ITALIC));
         else line.append(Component.literal(": ").withStyle(ChatFormatting.GRAY)).append(Component.literal(m.text));

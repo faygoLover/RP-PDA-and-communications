@@ -20,6 +20,12 @@ public final class Note {
     public boolean cipher;
     /** Какие из трёх частей уже расшифрованы (биты 0–2). */
     public int opened;
+    /**
+     * Файл с ретро-КПК ещё качается или передача оборвалась: текст — сколько успело прийти, {@code expect} — сколько
+     * знаков должно было быть. Такая заметка не открывается, но место занимает.
+     */
+    public boolean partial;
+    public int expect;
 
     public static final int PARTS = 3;
 
@@ -49,6 +55,10 @@ public final class Note {
             t.putBoolean("cipher", true);
             t.putInt("opened", opened);
         }
+        if (partial) {
+            t.putBoolean("partial", true);
+            t.putInt("expect", expect);
+        }
         return t;
     }
 
@@ -59,6 +69,8 @@ public final class Note {
         if (t.contains("from")) n.from = t.getString("from");
         n.cipher = t.getBoolean("cipher");
         n.opened = t.getInt("opened");
+        n.partial = t.getBoolean("partial");
+        n.expect = t.getInt("expect");
         return n;
     }
 

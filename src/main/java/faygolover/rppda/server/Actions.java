@@ -188,6 +188,8 @@ public final class Actions {
                 Chat c = store.chat(d.getInt("chat"));
                 if (c == null || !canRead(s, me, c)) return;
                 s.openChat = c.id;
+                s.historyBytes = 0;
+                s.historyFull = false;
                 history(sp, s, store, c, 0);
                 if (c.has(me.id) && !s.gmSwitched() && !(s.system && c.type != Chat.Type.GLOBAL && !c.has(0))) {
                     long cut = Views.cut(sp, s);
@@ -198,7 +200,12 @@ public final class Actions {
                     if (!s.system) Messaging.sendUnread(sp);
                 }
             }
-            case "chat.leave" -> s.openChat = -1;
+            case "chat.leave" -> {
+                // Подгруженная история освобождает память, когда выходишь из чата.
+                s.openChat = -1;
+                s.historyBytes = 0;
+                s.historyFull = false;
+            }
             case "chat.history" -> {
                 Chat c = store.chat(d.getInt("chat"));
                 if (c != null && canRead(s, me, c)) history(sp, s, store, c, d.getInt("before"));
@@ -256,7 +263,9 @@ public final class Actions {
                 Note n = null;
                 for (Note o : me.notes) if (o.id == id) n = o;
                 // Полученные заметки не меняются (только удалить); зашифрованную чужую — тоже нельзя.
-                if (n != null && (n.from != null || !Cipher.readable(sp, me, n))) return;
+                if (n != null && (n.from != null || n.partial || !Cipher.readable(sp, me, n))) return;
+                // Память ретро-КПК: новое и добавленные знаки — только если влезают (укорачивать можно всегда).
+                if (!s.system && !Memory.allow(sp, me, s, n == null ? 0 : Memory.noteBytes(n), Memory.bytes(title) + Memory.bytes(text))) return;
                 if (n == null) {
                     if (me.notes.size() >= Note.LIMIT) {
                         toast(sp, "rppda.err.notes_full", true);
@@ -282,6 +291,12 @@ public final class Actions {
                 sendNotes(sp, me);
             }
             case "notes.share" -> {
+                // Реалистичные ретро-КПК: заметкой делятся только приглашением с медленной передачей рядом
+                // (системный КПК ГМа — по-старому, сразу).
+                if (PdaConfig.realisticRetro && !s.system) {
+                    Transfers.offer(sp, s, store, me, d.getInt("id"), d.getInt("chat"));
+                    return;
+                }
                 Note n = null;
                 for (Note o : me.notes) if (o.id == d.getInt("id")) n = o;
                 Chat c = store.chat(d.getInt("chat"));
@@ -305,6 +320,7 @@ public final class Actions {
                     return;
                 }
                 int nl = m.text.indexOf('\n');
+                if (!s.system && !Memory.allow(sp, me, s, 0, Memory.bytes(m.text) - (nl < 0 ? 0 : 1))) return;
                 Note n = new Note(me.nextNote++, nl < 0 ? m.text : m.text.substring(0, nl), nl < 0 ? "" : m.text.substring(nl + 1));
                 n.created = n.updated = System.currentTimeMillis();
                 n.from = Views.nameFor(store, me, m.sender);
@@ -354,6 +370,7 @@ public final class Actions {
                     return;
                 }
                 if (o.id == me.id) return;
+                if (!s.system && !me.contacts.containsKey(id) && !Memory.allow(sp, me, s, 0, Memory.CONTACT)) return;
                 String label = d.getString("label").strip();
                 if (label.length() > TITLE_MAX) label = label.substring(0, TITLE_MAX);
                 me.contacts.put(id, label);
@@ -431,8 +448,38 @@ public final class Actions {
                 Net.send(sp, "avatars", t);
             }
             case "nearby", "nearby.offer", "nearby.accept", "nearby.decline" -> Nearby.handle(sp, s, store, me, op, d);
+            case "xfer.join" -> Transfers.join(sp, s, store, me, d.getInt("chat"), d.getInt("seq"));
+            case "xfer.cancel" -> Transfers.cancel(sp, me, d.getInt("chat"), d.getInt("seq"));
+            case "mem.slot" -> memSlot(sp, s, me, d.getInt("slot"), d.getInt("inv"));
+            case "mem.unslot" -> memSlot(sp, s, me, d.getInt("slot"), -1);
             default -> {}
         }
+    }
+
+    /**
+     * Ячейка расширения в профиле: поставить плату памяти из ячейки инвентаря {@code inv} (0–35, 40 — вторая рука) или
+     * снять ({@code inv} = −1). Старая плата возвращается в инвентарь.
+     */
+    private static void memSlot(ServerPlayer sp, PdaServer.Session s, Account me, int slot, int inv) {
+        if (s.system || slot < 0 || slot >= PdaItem.SLOTS) return;
+        ItemStack dev = Devices.stackOf(sp, me);
+        if (dev == null) return;
+        int[] slots = PdaItem.slots(dev);
+        int put = 0;
+        if (inv >= 0) {
+            var inventory = sp.getInventory();
+            ItemStack board = inv < inventory.items.size() ? inventory.items.get(inv) : inv == 40 ? inventory.offhand.get(0) : ItemStack.EMPTY;
+            if (!(board.getItem() instanceof faygolover.rppda.item.MemoryBoardItem mb)) return;
+            put = mb.kb;
+            board.shrink(1);
+        } else if (slots[slot] == 0) return;
+        int old = slots[slot];
+        PdaItem.setSlot(dev, slot, put);
+        if (old > 0) {
+            ItemStack back = new ItemStack(ModItems.memory(old));
+            if (!back.isEmpty() && !sp.getInventory().add(back)) sp.drop(back, false);
+        }
+        Views.sendState(sp, s);
     }
 
     /** Знаки аватарки: 1–2 видимых символа, без кодов форматирования. */
@@ -501,9 +548,38 @@ public final class Actions {
             for (Message m : msgs) if (m.time <= cut) seen.add(m);
             msgs = seen;
         }
+        // Память ретро-КПК: история сверх первой страницы занимает место (общий чат — нет). Не влезает — берём
+        // сколько влезет (свежие из этой страницы), дальше назад не листается.
+        if (before > 0 && c.type != Chat.Type.GLOBAL && !s.system) {
+            Account dev = store.account(s.device);
+            int free = dev == null ? Integer.MAX_VALUE : Memory.free(sp, dev, s);
+            if (free != Integer.MAX_VALUE) {
+                int keepFrom = msgs.size(), sum = 0;
+                boolean full = s.historyFull;
+                for (int i = msgs.size() - 1; i >= 0 && !full; i--) {
+                    Message m = msgs.get(i);
+                    int b = m.deleted() ? 0 : PdaStore.messageBytes(m);
+                    if (sum + b > free) full = true;
+                    else {
+                        sum += b;
+                        keepFrom = i;
+                    }
+                }
+                if (full) {
+                    msgs = msgs.subList(keepFrom, msgs.size());
+                    t.putBoolean("more", false);
+                }
+                s.historyBytes += sum;
+                s.historyFull = full;
+            }
+        }
+        t.putInt("hist", s.historyBytes);
+        t.putBoolean("full", s.historyFull);
         t.put("msgs", Views.page(store, s, c, msgs));
         t.put("row", Views.row(store, store.account(s.acting), c, s, cut));
         Net.send(sp, "history", t);
+        Account dev = s.system ? null : store.account(s.device);
+        if (dev != null) Memory.push(sp, dev);
     }
 
     static void sendNotes(ServerPlayer sp, Account me) {
@@ -512,6 +588,7 @@ public final class Actions {
         CompoundTag t = new CompoundTag();
         t.put("list", l);
         Net.send(sp, "notes", t);
+        Memory.push(sp, me);
     }
 
     /** Окно КПК без связи: сказать и вернуть true. */

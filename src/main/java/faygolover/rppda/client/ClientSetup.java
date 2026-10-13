@@ -51,6 +51,7 @@ public final class ClientSetup {
     private static void onClientTick(TickEvent.ClientTickEvent e) {
         if (e.phase != TickEvent.Phase.END) return;
         Minecraft mc = Minecraft.getInstance();
+        Xfers.tick();
         while (OPEN.consumeClick()) {
             if (mc.screen == null && mc.player != null) ClientPda.send("open", new CompoundTag());
         }

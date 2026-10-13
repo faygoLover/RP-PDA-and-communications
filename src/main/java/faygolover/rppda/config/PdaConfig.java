@@ -33,6 +33,14 @@ public final class PdaConfig {
     private static final ForgeConfigSpec.IntValue CIPHER_SECONDS;
     private static final ForgeConfigSpec.IntValue EXCHANGE_RADIUS;
     private static final ForgeConfigSpec.IntValue AVATAR_UPLOAD_SECONDS;
+    private static final ForgeConfigSpec.BooleanValue REALISTIC_RETRO;
+    private static final ForgeConfigSpec.IntValue RETRO_MEMORY;
+    private static final ForgeConfigSpec.IntValue RETRO_SPEED;
+    private static final ForgeConfigSpec.IntValue MODERN_SPEED;
+    private static final ForgeConfigSpec.IntValue TRANSFER_RADIUS;
+    private static final ForgeConfigSpec.IntValue TRANSFER_PEERS;
+    private static final ForgeConfigSpec.IntValue INVITE_MINUTES;
+    private static final ForgeConfigSpec.IntValue GLITCH_CHANCE;
 
     public static boolean chatToPda = false;
     public static int chatRadius = 16;
@@ -60,6 +68,15 @@ public final class PdaConfig {
     public static int cipherSeconds = 60;
     public static int exchangeRadius = 5;
     public static int avatarUploadSeconds = 30;
+    /** Реалистичные ретро-КПК: память в байтах, заметки — только приглашением с медленной передачей рядом. */
+    public static boolean realisticRetro = false;
+    public static int retroMemory = 2048;
+    public static int retroSpeed = 10;
+    public static int modernSpeed = 200;
+    public static int transferRadius = 16;
+    public static int transferPeers = 2;
+    public static int inviteMinutes = 5;
+    public static int glitchChance = 20;
 
     static {
         ForgeConfigSpec.Builder b = new ForgeConfigSpec.Builder();
@@ -123,6 +140,26 @@ public final class PdaConfig {
         CIPHER_SECONDS = b.comment("Расшифровка заметки: секунд на матрицу (отсчёт с первого выбора).")
                 .defineInRange("decrypt_seconds", 60, 10, 600);
         b.pop();
+        b.push("retro_memory");
+        REALISTIC_RETRO = b.comment("Реалистичные ретро-КПК: у ретро-КПК своя маленькая память (контакты, аватарка, заметки, подгруженная",
+                        "история чатов), ячейки расширения с платами памяти. Заметками делятся только приглашением в чате: файл",
+                        "медленно передаётся рядом (у всех КПК). Realistic retro PDAs: tiny memory, slow nearby note transfers.")
+                .define("realistic_retro", false);
+        RETRO_MEMORY = b.comment("Своя память ретро-КПК без плат, байт (1 знак = 1 байт).")
+                .defineInRange("retro_memory_bytes", 2048, 256, 1_048_576);
+        RETRO_SPEED = b.comment("Скорость передачи файла ретро-КПК, байт/с. Передача идёт по самому медленному звену.")
+                .defineInRange("retro_bytes_per_second", 10, 1, 100_000);
+        MODERN_SPEED = b.comment("Скорость передачи файла современного КПК, байт/с.")
+                .defineInRange("modern_bytes_per_second", 200, 1, 100_000);
+        TRANSFER_RADIUS = b.comment("Передача файла: все, кто качает, должны быть не дальше этого от отправителя, блоки.")
+                .defineInRange("transfer_radius", 16, 1, 256);
+        TRANSFER_PEERS = b.comment("Сколько человек могут качать один файл сразу (скорость отправителя делится между ними).")
+                .defineInRange("transfer_max_peers", 2, 1, 32);
+        INVITE_MINUTES = b.comment("Приглашение скачать файл живёт столько минут (или пока отправитель его не отменит).")
+                .defineInRange("invite_minutes", 5, 1, 120);
+        GLITCH_CHANCE = b.comment("Память переполнена: с таким шансом (%) при смене экрана КПК начинает глючить.")
+                .defineInRange("overflow_glitch_percent", 20, 0, 100);
+        b.pop();
         b.push("storage");
         ARCHIVE_MINUTES = b.comment("Как часто (минуты) перекладывать старые сообщения в архив (и при сохранении мира).")
                 .defineInRange("archive_interval_minutes", 10, 1, 240);
@@ -156,5 +193,13 @@ public final class PdaConfig {
         cipherSeconds = CIPHER_SECONDS.get();
         exchangeRadius = EXCHANGE_RADIUS.get();
         avatarUploadSeconds = AVATAR_UPLOAD_SECONDS.get();
+        realisticRetro = REALISTIC_RETRO.get();
+        retroMemory = RETRO_MEMORY.get();
+        retroSpeed = RETRO_SPEED.get();
+        modernSpeed = MODERN_SPEED.get();
+        transferRadius = TRANSFER_RADIUS.get();
+        transferPeers = TRANSFER_PEERS.get();
+        inviteMinutes = INVITE_MINUTES.get();
+        glitchChance = GLITCH_CHANCE.get();
     }
 }

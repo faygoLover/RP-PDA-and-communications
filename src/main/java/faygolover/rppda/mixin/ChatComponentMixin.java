@@ -29,7 +29,7 @@ public abstract class ChatComponentMixin {
             at = @At(value = "INVOKE", target = "Lnet/minecraft/client/gui/GuiGraphics;fill(IIIII)V", ordinal = 0))
     private int rppda$tint(int color) {
         GuiMessage.Line line = rppda$line;
-        if (line == null || line.tag() != ClientPda.TAG) return color;
+        if (line == null || line.tag() != ClientPda.TAG && line.tag() != ClientPda.XFER_TAG) return color;
         int alpha = (color >>> 24) & 255;
         if (alpha == 0) return color;
         alpha = Math.min(255, alpha + 40);

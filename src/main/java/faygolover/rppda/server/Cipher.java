@@ -60,6 +60,13 @@ public final class Cipher {
     static CompoundTag view(ServerPlayer sp, Account me, Note n) {
         CompoundTag t = n.save();
         if (n.from != null) t.putBoolean("ro", true);
+        t.putInt("size", Memory.noteBytes(n));
+        if (n.partial) {
+            // Недокачанный файл не открывается: текст не уходит, только сколько пришло.
+            t.putString("text", "");
+            t.putInt("got", Memory.bytes(n.text));
+            return t;
+        }
         if (!readable(sp, me, n)) {
             t.putString("text", n.masked());
             t.putBoolean("locked", true);
@@ -118,7 +125,7 @@ public final class Cipher {
 
     static void start(ServerPlayer sp, PdaStore store, Account me, int id) {
         Note n = note(me, id);
-        if (n == null || readable(sp, me, n)) return;
+        if (n == null || n.partial || readable(sp, me, n)) return;
         ItemStack d = decryptor(sp);
         if (d == null) return;
         Game g = generate(n, new Random());

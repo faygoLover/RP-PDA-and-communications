@@ -139,6 +139,25 @@ public class PdaScreen extends Screen {
     @Nullable
     private Ui.Box avMarkBox;
 
+    // Память ретро-КПК (docs/20_retro_memory.md): занято/объём/ячейки (null — без ограничения), заметки — приглашением.
+    @Nullable
+    private CompoundTag mem;
+    private boolean xferMode;
+    /** Окно ошибки «Память переполнена» (поверх всего, пока не нажмут «ОК»). */
+    private boolean memModal;
+    /** Ячейка, над которой открыт выбор модуля (−1 — закрыт), и строки этого окошка (для мыши). */
+    private int slotPopup = -1;
+    private final List<Hot> popupHots = new ArrayList<>();
+    /** Глюк переполненной памяти: начинается при смене экрана (с шансом), держится до следующей смены. */
+    @Nullable
+    private Page glitchPage;
+    private boolean glitch;
+    private long glitchSeed;
+    /** Подгруженная история открытого чата (память) и «дальше не влезает». */
+    private int histBytes;
+    private boolean histFull;
+    private int blocksXfer = -1;
+
     // Открытый чат.
     @Nullable
     private CompoundTag chatRow;
@@ -314,9 +333,25 @@ public class PdaScreen extends Screen {
                 readState(d);
                 refreshTheme();
                 // После «Войти» во взломе сервер открывает КПК — уходим со страницы взлома к чатам.
-                if (page == Page.WAIT || page == Page.REGISTER || page == Page.LOCKED || page == Page.HACK) setPage(Page.CHATS);
-                else if (page == Page.PASSWORD) setPage(Page.PROFILE);
+                if (page == Page.WAIT || page == Page.REGISTER || page == Page.LOCKED || page == Page.HACK) {
+                    setPage(Page.CHATS);
+                    // Только что открыли: память переполнена — окно ошибки; почти заполнена — предупреждение.
+                    if (memOver()) showMemError();
+                    else if (mem != null && !mem.getBoolean("admin") && mem.getInt("used") * 10L >= mem.getInt("cap") * 9L)
+                        showToast(Component.translatable("rppda.mem.almost"), true);
+                } else if (page == Page.PASSWORD) setPage(Page.PROFILE);
                 else rebuild();
+            }
+            case "mem.full" -> showMemError();
+            case "mem" -> mem = d;
+            case "xfer" -> {
+                if (page == Page.NOTES) rebuild();
+            }
+            case "msgupd" -> {
+                if (chatRow == null || chatRow.getInt("id") != d.getInt("chat")) return;
+                CompoundTag m = stampFile(d.getCompound("m"));
+                for (int i = 0; i < msgs.size(); i++) if (msgs.get(i).getInt("s") == m.getInt("s")) msgs.set(i, m);
+                msgsVersion++;
             }
             case "hack" -> {
                 defaultStyle = d.getString("style");
@@ -376,6 +411,9 @@ public class PdaScreen extends Screen {
             case "history" -> {
                 if (chatRow == null || chatRow.getInt("id") != d.getInt("chat")) return;
                 List<CompoundTag> got = list(d, "msgs");
+                for (CompoundTag m : got) stampFile(m);
+                histBytes = d.getInt("hist");
+                histFull = d.getBoolean("full");
                 if (d.getInt("before") <= 0) {
                     msgs.clear();
                     msgs.addAll(got);
@@ -392,7 +430,7 @@ public class PdaScreen extends Screen {
             }
             case "msg" -> {
                 if (chatRow == null || chatRow.getInt("id") != d.getInt("chat")) return;
-                CompoundTag m = d.getCompound("m");
+                CompoundTag m = stampFile(d.getCompound("m"));
                 for (CompoundTag o : msgs) if (o.getInt("s") == m.getInt("s")) return;
                 int before = totalHeight();
                 msgs.add(m);
@@ -432,7 +470,11 @@ public class PdaScreen extends Screen {
             }
             case "toast" -> {
                 List<Object> args = new ArrayList<>();
-                for (Tag t : d.getList("args", Tag.TAG_STRING)) args.add(t.getAsString());
+                // Аргумент-ключ перевода (rppda.…) — перевести здесь: у сервера языков модов нет.
+                for (Tag t : d.getList("args", Tag.TAG_STRING)) {
+                    String a = t.getAsString();
+                    args.add(a.startsWith("rppda.") ? Component.translatable(a) : a);
+                }
                 showToast(Component.translatable(d.getString("key"), args.toArray()), d.getBoolean("err"));
             }
             case "sys.accounts" -> {
@@ -503,6 +545,8 @@ public class PdaScreen extends Screen {
         character = d.getBoolean("character");
         signalOk = !d.contains("signal") || d.getBoolean("signal");
         allowOut = d.getBoolean("allowOut");
+        mem = d.contains("mem") ? d.getCompound("mem") : null;
+        xferMode = d.getBoolean("xfer");
         if (d.contains("maxLen")) maxLen = d.getInt("maxLen");
         chats.clear();
         chats.addAll(list(d, "chats"));
@@ -548,6 +592,35 @@ public class PdaScreen extends Screen {
         }
     }
 
+    // ================================================================ память ретро-КПК
+
+    /** Занято больше, чем есть (админу лимит не писан). */
+    private boolean memOver() {
+        return mem != null && !mem.getBoolean("admin") && mem.getInt("used") > mem.getInt("cap");
+    }
+
+    private void showMemError() {
+        memModal = true;
+        Sfx.play(Sfx.BAD);
+    }
+
+    /** «340 Б» / «1,2 КБ». */
+    static String size(int bytes) {
+        if (bytes < 1024) return Component.translatable("rppda.size.b", bytes).getString();
+        String kb = String.format(java.util.Locale.ROOT, "%.1f", bytes / 1024f);
+        if (kb.endsWith(".0")) kb = kb.substring(0, kb.length() - 2);
+        return Component.translatable("rppda.size.kb", kb).getString();
+    }
+
+    /** Приглашение скачать файл: когда закроется (по часам клиента). */
+    private static CompoundTag stampFile(CompoundTag m) {
+        if (m.contains("fleft")) {
+            long left = m.getLong("fleft");
+            m.putLong("fexp", left > 0 ? System.currentTimeMillis() + left : 0);
+        }
+        return m;
+    }
+
     private void showToast(Component c, boolean error) {
         toast = c;
         toastColor = error ? Ui.RED : Ui.GREEN;
@@ -570,6 +643,7 @@ public class PdaScreen extends Screen {
         page = p;
         prompt = Prompt.NONE;
         listScroll = 0;
+        slotPopup = -1;
         switch (p) {
             case SYS_ACCOUNTS -> send("sys.accounts", t -> t.putString("q", sysQuery));
             case SYS_CHATS -> send("sys.chats", t -> {});
@@ -1109,6 +1183,8 @@ public class PdaScreen extends Screen {
         scroll = 0;
         replySeq = 0;
         inputDraft = "";
+        histBytes = 0;
+        histFull = false;
         prompt = Prompt.NONE;
         page = Page.CHAT;
         send("chat.open", t -> t.putInt("chat", row.getInt("id")));
@@ -1137,6 +1213,15 @@ public class PdaScreen extends Screen {
     @Override
     public boolean keyPressed(int key, int scan, int mods) {
         boolean enter = key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER;
+        // Окно ошибки памяти: только «ОК» (Enter, пробел, Esc); остальное не проходит.
+        if (memModal) {
+            if (enter || key == GLFW.GLFW_KEY_SPACE || key == GLFW.GLFW_KEY_ESCAPE) closeMemError();
+            return true;
+        }
+        if (key == GLFW.GLFW_KEY_ESCAPE && slotPopup >= 0) {
+            slotPopup = -1;
+            return true;
+        }
         if (enter) {
             if (prompt != Prompt.NONE && (getFocused() == promptA || getFocused() == promptB)) {
                 confirmPrompt();
@@ -1204,6 +1289,23 @@ public class PdaScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mx, double my, int button) {
+        if (memModal) {
+            if (button == 0 && memOkHot != null && memOkHot.in(mx, my)) closeMemError();
+            return true;
+        }
+        // Окошко выбора модуля: строка — выбрать; мимо — закрыть.
+        if (slotPopup >= 0) {
+            for (Hot hot : new ArrayList<>(popupHots)) {
+                if (hot.in(mx, my) && button == 0) {
+                    Sfx.play(Sfx.PRESS, 0.4f);
+                    hot.run.run();
+                    slotPopup = -1;
+                    return true;
+                }
+            }
+            slotPopup = -1;
+            return true;
+        }
         if (retro && button == 0) {
             List<Key> ks = keys();
             for (int i = 0; i < ks.size(); i++) {
@@ -1342,9 +1444,90 @@ public class PdaScreen extends Screen {
             txt(g, toast, tx + 5, ty + 3, Ui.TEXT, false);
             g.pose().popPose();
         }
+        if (slotPopup >= 0 && page == Page.PROFILE) renderSlotPopup(g, mx, my);
+        renderGlitch(g);
         if (retro && Ui.crt) crt(g);
+        if (memModal) renderMemError(g, mx, my);
         updateMinigameHover(mx, my);
-        hoverTooltip(g, mx, my);
+        if (!memModal) hoverTooltip(g, mx, my);
+    }
+
+    // ---------------------------------------------------------------- память: окно ошибки и глюки
+
+    @Nullable
+    private Hot memOkHot;
+
+    private void closeMemError() {
+        memModal = false;
+        Sfx.play(Sfx.PRESS, 0.5f);
+    }
+
+    /** «ОШИБКА 0x0F: ПАМЯТЬ ПЕРЕПОЛНЕНА. Удалите данные.» [ОК] — системное окошко посреди экрана. */
+    private void renderMemError(GuiGraphics g, int mx, int my) {
+        g.pose().pushPose();
+        g.pose().translate(0, 0, 600);
+        g.fill(sx, sy, sx + sw, sy + sh, retro ? (Ui.SCREEN & 0xFFFFFF) | 0x99000000 : 0x99000000);
+        int bw = Math.min(sw - 20, 220);
+        List<FormattedCharSequence> lines = font.split(Component.literal(Ui.up(Component.translatable("rppda.mem.error").getString())), bw - 12);
+        int bh = 16 + lines.size() * 10 + 26;
+        int bx = sx + sw / 2 - bw / 2, by = sy + sh / 2 - bh / 2;
+        g.fill(bx, by, bx + bw, by + bh, retro ? Ui.SCREEN : Ui.PANEL);
+        g.renderOutline(bx, by, bw, bh, retro ? Ui.TEXT : Ui.RED);
+        g.fill(bx, by, bx + bw, by + 11, retro ? Ui.TEXT : Ui.RED);
+        g.drawString(font, Ui.up(Component.translatable("rppda.mem.error_title").getString()), bx + 4, by + 2, retro ? Ui.SCREEN : 0xFFFFFFFF, false);
+        int ly = by + 16;
+        for (FormattedCharSequence l : lines) {
+            g.drawString(font, l, bx + 6, ly, Ui.TEXT, false);
+            ly += 10;
+        }
+        String ok = Ui.up(Component.translatable("rppda.btn.ok").getString());
+        int ow = font.width(ok) + 16, ox = bx + bw / 2 - ow / 2, oy = by + bh - 18;
+        boolean hot = mx >= ox && mx < ox + ow && my >= oy && my < oy + 13;
+        g.fill(ox, oy, ox + ow, oy + 13, hot ? Ui.TEXT : retro ? Ui.SCREEN : Ui.ACCENT);
+        g.renderOutline(ox, oy, ow, 13, Ui.TEXT);
+        g.drawString(font, ok, ox + 8, oy + 3, hot ? Ui.SCREEN : retro ? Ui.TEXT : 0xFFFFFFFF, false);
+        memOkHot = new Hot(ox, oy, ow, 13, "memok", null, () -> {});
+        g.pose().popPose();
+    }
+
+    /**
+     * Память переполнена: при смене экрана с шансом {@code overflow_glitch_percent} КПК «глючит» до следующей смены —
+     * часть знаков не стёрлась, полосы развёртки съехали, битые пиксели.
+     */
+    private void renderGlitch(GuiGraphics g) {
+        if (glitchPage != page) {
+            glitchPage = page;
+            glitch = memOver() && page != Page.WAIT && Math.random() * 100 < (mem == null ? 0 : mem.getInt("glitch"));
+            glitchSeed = System.nanoTime();
+        }
+        if (!glitch || !memOver()) return;
+        java.util.Random r = new java.util.Random(glitchSeed);
+        g.pose().pushPose();
+        g.pose().translate(0, 0, 280);
+        g.enableScissor(sx, sy, sx + sw, sy + sh);
+        // Съехавшие полосы: кусок строки затёрт и сдвинут, в нём — мусор.
+        for (int i = 0, n = 2 + r.nextInt(3); i < n; i++) {
+            int y = sy + 12 + r.nextInt(Math.max(1, sh - 24)), hh = 2 + r.nextInt(6), dx = r.nextInt(31) - 15;
+            g.fill(sx, y, sx + sw, y + hh, Ui.SCREEN);
+            for (int x = sx + Math.max(0, dx); x < sx + sw; x += 3 + r.nextInt(9)) {
+                if (r.nextInt(3) == 0) g.fill(x, y + r.nextInt(hh), x + 1 + r.nextInt(5), y + hh, r.nextBoolean() ? Ui.DIM : Ui.TEXT);
+            }
+        }
+        // Не стёршиеся знаки с прошлого экрана.
+        String junk = "#@%&$0123456789ABCDEFЖЯЮЩ";
+        for (int i = 0, n = 4 + r.nextInt(6); i < n; i++) {
+            StringBuilder b = new StringBuilder();
+            for (int k = 0, len = 1 + r.nextInt(6); k < len; k++) b.append(junk.charAt(r.nextInt(junk.length())));
+            g.drawString(font, b.toString(), sx + r.nextInt(Math.max(1, sw - 30)), sy + 12 + r.nextInt(Math.max(1, sh - 22)),
+                    r.nextBoolean() ? Ui.TEXT : Ui.DIM, false);
+        }
+        // Битые пиксели.
+        for (int i = 0, n = 6 + r.nextInt(8); i < n; i++) {
+            int x = sx + r.nextInt(sw), y = sy + r.nextInt(sh), s = 1 + r.nextInt(2);
+            g.fill(x, y, x + s, y + s, Ui.TEXT);
+        }
+        g.disableScissor();
+        g.pose().popPose();
     }
 
     /** Наведение на клетку расшифровки — по собранным за кадр зонам (подсветка со следующего кадра). */
@@ -1555,6 +1738,8 @@ public class PdaScreen extends Screen {
         chatAvatar(g, r, cx + 4, y + 4, 16);
         int unread = r.getInt("unread");
         String time = Ui.time(r.getLong("time"));
+        // Память ретро-КПК: размер переписки — рядом с названием.
+        if (mem != null && r.contains("size")) time = size(r.getInt("size")) + (time.isEmpty() ? "" : "  " + time);
         int tw = tw(time);
         txt(g, fit(chatTitle(r).getString(), cw - 34 - tw), cx + 24, y + 3, unread > 0 ? onTile() : Ui.TEXT, false);
         txt(g, time, cx + cw - tw - 4, y + 3, Ui.DIM, false);
@@ -1579,17 +1764,19 @@ public class PdaScreen extends Screen {
 
     // ---------------------------------------------------------------- открытый чат
 
+    /** {@code bars} — строк загрузки под приглашением скачать файл (передачи этого игрока). */
     private record Block(CompoundTag m, List<FormattedCharSequence> lines, int height, boolean own, boolean notice,
-                         @Nullable String date, int bubbleW, @Nullable List<FormattedCharSequence> quote) {}
+                         @Nullable String date, int bubbleW, @Nullable List<FormattedCharSequence> quote, int bars) {}
 
     private int maxBubble() {
         return Math.max(80, cw * 3 / 4);
     }
 
     private void layout() {
-        if (blocksVersion == msgsVersion && blocksWidth == cw) return;
+        if (blocksVersion == msgsVersion && blocksWidth == cw && blocksXfer == Xfers.shape) return;
         blocksVersion = msgsVersion;
         blocksWidth = cw;
+        blocksXfer = Xfers.shape;
         if (retro) {
             layoutRetro();
             return;
@@ -1605,13 +1792,14 @@ public class PdaScreen extends Screen {
             if ((fl & 2) != 0) {
                 Component text = noticeText(m.getString("x"));
                 List<FormattedCharSequence> lines = font.split(text, cw - 20);
-                out.add(new Block(m, lines, lines.size() * 9 + 4 + (date != null ? 14 : 0), false, true, date, 0, null));
+                out.add(new Block(m, lines, lines.size() * 9 + 4 + (date != null ? 14 : 0), false, true, date, 0, null, 0));
                 continue;
             }
             boolean own = m.getInt("f") == meId;
             boolean deleted = (fl & 1) != 0;
             Component body = deleted && m.getString("x").isEmpty() ? Component.translatable("rppda.chat.deleted").withStyle(ChatFormatting.ITALIC)
                     : (fl & 8) != 0 ? Component.literal(noteCard(m.getString("x"))).withStyle(ChatFormatting.GOLD)
+                    : (fl & 32) != 0 ? Component.literal(fileCard(m)).withStyle(ChatFormatting.GOLD)
                     : (fl & 4) != 0 ? Component.literal("* " + m.getString("x")).withStyle(ChatFormatting.ITALIC)
                     : Component.literal(m.getString("x"));
             if (deleted && !m.getString("x").isEmpty()) body = body.copy().withStyle(ChatFormatting.STRIKETHROUGH);
@@ -1626,9 +1814,11 @@ public class PdaScreen extends Screen {
             for (FormattedCharSequence l : lines) textW = Math.max(textW, tw(l));
             String header = header(m, own, group);
             int headW = tw(header) + 8 + tw(Ui.clock(m.getLong("t")));
+            int bars = (fl & 32) != 0 && chatRow != null ? Xfers.of(chatRow.getInt("id"), m.getInt("s")).size() : 0;
+            if (bars > 0) textW = Math.max(textW, tw("→ WWWWWWWWWW  / [##########] 100%  9999 B/s"));
             int bw = Math.min(maxBubble(), Math.max(Math.max(textW, headW), quote == null ? 0 : Math.min(inner, tw(quote.get(0)) + 6)) + 10);
-            int hgt = 4 + 9 + (quote != null ? 11 : 0) + lines.size() * 9 + 3;
-            out.add(new Block(m, lines, hgt + 3 + (date != null ? 14 : 0), own, false, date, bw, quote));
+            int hgt = 4 + 9 + (quote != null ? 11 : 0) + lines.size() * 9 + bars * 9 + 3;
+            out.add(new Block(m, lines, hgt + 3 + (date != null ? 14 : 0), own, false, date, bw, quote, bars));
         }
         blocks = out;
     }
@@ -1667,7 +1857,10 @@ public class PdaScreen extends Screen {
             case "GLOBAL" -> Component.translatable("rppda.chat.global_sub");
             default -> chatRow.contains("peer") ? Component.literal("ID " + Ui.formatId(chatRow.getInt("peer"))) : Component.empty();
         };
-        txt(g, sub, cx + 42, cy + 10, Ui.DIM, false);
+        String subLine = sub.getString();
+        // Подгруженная история занимает память ретро-КПК (до выхода из чата).
+        if (mem != null && histBytes > 0) subLine += " · " + Component.translatable("rppda.mem.history_loaded", size(histBytes)).getString();
+        txt(g, fit(subLine, cw - 44 - toolW), cx + 42, cy + 10, Ui.DIM, false);
         g.fill(cx, cy + 19, cx + cw, cy + 20, Ui.SEP);
 
         boolean canWrite = canWrite();
@@ -1696,6 +1889,10 @@ public class PdaScreen extends Screen {
         if (loading) {
             Component l = Component.translatable("rppda.screen.loading");
             txt(g, l, cx + cw / 2 - tw(l) / 2, Math.max(top + 2, y - 12), Ui.DIM, false);
+        } else if (histFull) {
+            // Память ретро-КПК кончилась — дальше назад история не листается.
+            String l = fit(Component.translatable("rppda.mem.history_full").getString(), cw - 8);
+            txt(g, l, cx + cw / 2 - tw(l) / 2, Math.max(top + 2, y - 12), Ui.RED, false);
         }
         boolean group = !type.equals("DM");
         for (Block b : blocks) {
@@ -1743,6 +1940,7 @@ public class PdaScreen extends Screen {
                 txt(g, l, bx + 5, ty, deleted ? Ui.DIM : Ui.TEXT, false);
                 ty += 9;
             }
+            drawBars(g, b, bx + 5, ty, bw - 10, 9);
             // Наведение — пузырь вместе с полосой значков сбоку (иначе они пропадают, пока ведёшь к ним мышь).
             int strip = 3 * 14 + 4;
             int hx0 = b.own ? bx - strip : bx, hx1 = b.own ? bx + bw : bx + bw + strip;
@@ -1770,6 +1968,7 @@ public class PdaScreen extends Screen {
                     ix += step;
                 }
                 if ((m.getInt("fl") & 8) != 0 && !b.own) acceptNoteIcon(g, ix, by + 1, m);
+                if ((m.getInt("fl") & 32) != 0) fileIcon(g, ix, by + 1, m, b.own);
             }
         }
         g.disableScissor();
@@ -1944,7 +2143,11 @@ public class PdaScreen extends Screen {
         title(g, Component.translatable("rppda.page.avatar"), 4);
         String mark = avMarkBox == null ? editAvMark : avMarkBox.getValue();
         if (editAv == 3 && pendingTex != null && !retro) g.blit(pendingTex, cx + 6, cy + 24, 32, 32, 0, 0, 64, 64, 64, 64);
-        else Ui.avatar(g, cx + 6, cy + 24, 32, meOwner, meName, meId,
+        else if (editAv == 3 && pendingTex != null) {
+            // Ретро: новая картинка — сразу в двух цветах экрана.
+            g.renderOutline(cx + 6, cy + 24, 32, 32, Ui.DIM);
+            Duotone.draw(g, pendingTex, false, cx + 7, cy + 25, 30, Ui.SCREEN, Ui.TEXT);
+        } else Ui.avatar(g, cx + 6, cy + 24, 32, meOwner, meName, meId,
                 new Avatars.Style(editAv, editAvColor, Avatars.cleanMark(mark), meAvPic));
         int lx = cx + 46, vx = cx + 104;
         int y = cy + 26;
@@ -2038,23 +2241,141 @@ public class PdaScreen extends Screen {
         Component kind = Component.translatable(meKind.equals("NPC") ? "rppda.kind.npc" : "rppda.kind.player");
         txt(g, kind, cx + 44, cy + 41, Ui.DIM, false);
         int by = cy + (retro ? 54 : 64), st = retro ? 22 : 26;
+        // Справа — память (если есть): подписи слева обрезаются, чтобы не залезть на неё.
+        int right = mem != null ? cx + cw - memW() - 10 : cx + cw - 4;
         Component pw = Component.translatable(hasPw ? "rppda.profile.pw_on" : "rppda.profile.pw_off");
-        txt(g, pw, cx + 6 + (hasPw ? 62 : 22), by + 5, hasPw ? Ui.GREEN : Ui.DIM, false);
+        int pwx = cx + 6 + (hasPw ? 62 : 22);
+        txt(g, fit(pw.getString(), right - pwx), pwx, by + 5, hasPw ? Ui.GREEN : Ui.DIM, false);
         Component snd = Component.translatable(silent ? "rppda.profile.silent" : "rppda.profile.sound");
-        txt(g, snd, cx + 28, by + st + 5, Ui.DIM, false);
+        txt(g, fit(snd.getString(), right - cx - 28), cx + 28, by + st + 5, Ui.DIM, false);
         int rows = 2;
         if (!meKind.equals("SYSTEM")) {
             String[] kinds = {"rppda.profile.avatar_face", "rppda.profile.avatar_letter", "rppda.profile.avatar_portrait", "rppda.profile.avatar_picture"};
-            txt(g, Component.translatable(kinds[Math.max(0, Math.min(3, meAv))]), cx + 28, by + 2 * st + 5, Ui.DIM, false);
+            txt(g, fit(Component.translatable(kinds[Math.max(0, Math.min(3, meAv))]).getString(), right - cx - 28), cx + 28, by + 2 * st + 5, Ui.DIM, false);
             rows = 3;
         }
-        List<FormattedCharSequence> hint = font.split(Component.literal(Ui.up(Component.translatable("rppda.profile.hint").getString())), cw - 12);
+        int hintW = mem != null ? cw - memW() - 16 : cw - 12;
+        List<FormattedCharSequence> hint = font.split(Component.literal(Ui.up(Component.translatable("rppda.profile.hint").getString())), hintW);
         int hy = by + rows * st + 4;
         for (FormattedCharSequence l : hint) {
             if (hy + 9 > cy + ch) break;
             txt(g, l, cx + 6, hy, Ui.HINT, false);
             hy += 9;
         }
+        if (mem != null) renderMemory(g, by);
+    }
+
+    private int memW() {
+        return Math.min(150, cw / 2 - 8);
+    }
+
+    /** Ячейка расширения №i: квадрат справа в профиле. */
+    private int slotX(int i) {
+        return cx + cw - memW() - 4 + i * 24;
+    }
+
+    private int slotY(int top) {
+        return top + 62;
+    }
+
+    /** Профиль: «ПАМЯТЬ 1,4 / 2 КБ», полоса, из чего занято; ниже — 4 ячейки расширения. */
+    private void renderMemory(GuiGraphics g, int top) {
+        if (mem == null) return;
+        int mw = memW(), x = cx + cw - mw - 4, y = top + 2;
+        int used = mem.getInt("used"), cap = mem.getInt("cap");
+        boolean over = used > cap, admin = mem.getBoolean("admin");
+        txt(g, Component.translatable("rppda.mem.title"), x, y, Ui.DIM, false);
+        String amount = size(used) + " / " + size(cap) + (admin ? " ∞" : "");
+        int col = over && !admin ? Ui.RED : Ui.TEXT;
+        txt(g, amount, x + mw - tw(amount), y, col, false);
+        int bw = mw, by = y + 11;
+        g.renderOutline(x, by, bw, 6, Ui.DIM);
+        int fill = cap <= 0 ? bw - 2 : (int) Math.min(bw - 2, (long) (bw - 2) * used / cap);
+        boolean blink = over && !admin && (System.currentTimeMillis() / 400) % 2 == 0;
+        if (!blink) g.fill(x + 1, by + 1, x + 1 + fill, by + 5, over && !admin ? Ui.RED : Ui.TEXT);
+        // Из чего занято — две колонки.
+        String[][] parts = {{"rppda.mem.contacts", "contacts"}, {"rppda.mem.avatar", "avatar"},
+                {"rppda.mem.notes", "notes"}, {"rppda.mem.history", "history"}};
+        for (int i = 0; i < parts.length; i++) {
+            int px = x + (i % 2) * (mw / 2), py = by + 10 + (i / 2) * 10;
+            String v = size(mem.getInt(parts[i][1]));
+            txt(g, fit(Component.translatable(parts[i][0]).getString(), mw / 2 - tw(v) - 6), px, py, Ui.DIM, false);
+            txt(g, v, px + mw / 2 - 4 - tw(v), py, Ui.TEXT, false);
+        }
+        // Ячейки расширения: пусто — рамка; плата — её объём.
+        txt(g, Component.translatable("rppda.mem.slots"), x, slotY(top) - 11, Ui.DIM, false);
+        int[] slots = mem.getIntArray("slots");
+        for (int i = 0; i < 4; i++) {
+            int sx0 = slotX(i), sy0 = slotY(top);
+            int kb = i < slots.length ? slots[i] : 0;
+            if (!retro) g.fill(sx0, sy0, sx0 + 20, sy0 + 20, Ui.PANEL);
+            boolean on = slotPopup == i;
+            g.renderOutline(sx0, sy0, 20, 20, on ? Ui.TEXT : kb > 0 ? Ui.ACCENT : Ui.DIM);
+            if (kb > 0) {
+                if (!retro) g.renderItem(new net.minecraft.world.item.ItemStack(faygolover.rppda.item.ModItems.memory(kb)), sx0 + 2, sy0 + 2);
+                else {
+                    String l = kb + "K";
+                    g.drawString(font, l, sx0 + 10 - font.width(l) / 2, sy0 + 6, Ui.TEXT, false);
+                }
+            }
+            int slot = i;
+            Component tip = kb > 0 ? Component.translatable("rppda.mem.slot_board", slot + 1, kb) : Component.translatable("rppda.mem.slot_empty", slot + 1);
+            hots.add(new Hot(sx0, sy0, 20, 20, "slot" + i, tip, () -> slotPopup = slotPopup == slot ? -1 : slot));
+        }
+    }
+
+    /** Платы памяти в инвентаре игрока: номер ячейки инвентаря (вторая рука — 40) и предмет. */
+    private List<int[]> boardsInInventory() {
+        List<int[]> out = new ArrayList<>();
+        var p = Minecraft.getInstance().player;
+        if (p == null) return out;
+        var inv = p.getInventory();
+        for (int i = 0; i < inv.items.size(); i++)
+            if (inv.items.get(i).getItem() instanceof faygolover.rppda.item.MemoryBoardItem mb) out.add(new int[]{i, mb.kb, inv.items.get(i).getCount()});
+        if (inv.offhand.get(0).getItem() instanceof faygolover.rppda.item.MemoryBoardItem mb) out.add(new int[]{40, mb.kb, inv.offhand.get(0).getCount()});
+        return out;
+    }
+
+    /** Окошко над ячейкой: совместимые модули из инвентаря, «Снять» у занятой. */
+    private void renderSlotPopup(GuiGraphics g, int mx, int my) {
+        popupHots.clear();
+        if (mem == null) return;
+        int[] slots = mem.getIntArray("slots");
+        int slot = slotPopup, kb = slot < slots.length ? slots[slot] : 0;
+        record Row(String text, int color, @Nullable Runnable run) {}
+        List<Row> rows = new ArrayList<>();
+        // Одинаковые платы — одной строкой.
+        java.util.Set<Integer> shown = new java.util.HashSet<>();
+        for (int[] b : boardsInInventory()) {
+            if (!shown.add(b[1])) continue;
+            int inv = b[0];
+            rows.add(new Row(Component.translatable("item.rppda.memory_" + b[1]).getString(), Ui.TEXT,
+                    () -> send("mem.slot", t -> {
+                        t.putInt("slot", slot);
+                        t.putInt("inv", inv);
+                    })));
+        }
+        if (rows.isEmpty()) rows.add(new Row(Component.translatable("rppda.mem.no_modules").getString(), Ui.DIM, null));
+        if (kb > 0) rows.add(new Row(Component.translatable("rppda.mem.remove", kb).getString(), Ui.GOLD,
+                () -> send("mem.unslot", t -> t.putInt("slot", slot))));
+        int pw = 0;
+        for (Row r : rows) pw = Math.max(pw, font.width(Ui.up(r.text)) + 10);
+        int ph = rows.size() * 12 + 4;
+        int top = slotY(cy + (retro ? 54 : 64));
+        int px = Math.min(slotX(slot), cx + cw - pw), py = top - ph - 2;
+        g.pose().pushPose();
+        g.pose().translate(0, 0, 320);
+        g.fill(px, py, px + pw, py + ph, retro ? Ui.SCREEN : Ui.PANEL);
+        g.renderOutline(px, py, pw, ph, Ui.TEXT);
+        int ry = py + 2;
+        for (Row r : rows) {
+            boolean hover = r.run != null && mx >= px && mx < px + pw && my >= ry && my < ry + 12;
+            if (hover) g.fill(px + 1, ry, px + pw - 1, ry + 12, retro ? Ui.TEXT : Ui.ROW_HOVER);
+            g.drawString(font, Ui.up(r.text), px + 5, ry + 2, hover && retro ? Ui.SCREEN : r.color, false);
+            if (r.run != null) popupHots.add(new Hot(px, ry, pw, 12, "pop" + ry, null, r.run));
+            ry += 12;
+        }
+        g.pose().popPose();
     }
 
     // ---------------------------------------------------------------- системный КПК
@@ -2671,12 +2992,44 @@ public class PdaScreen extends Screen {
         title(g, Component.translatable("rppda.page.notes"), 4);
         list(g, mx, my, notes, 22, "note", (gg, n, y, hover) -> {
             boolean enc = n.getBoolean("cipher") && (n.getInt("opened") & 0b111) != 0b111;
-            Ui.icon(gg, enc ? Icon.LOCK : Icon.NOTE, cx + 4, y + 3, 16, n.contains("from") ? Ui.GOLD : Ui.ACCENT);
-            txt(gg, fit(n.getString("title"), cw - 34), cx + 24, y + 2, Ui.TEXT, false);
-            String sub = Ui.time(n.getLong("updated")) + (n.contains("from")
+            boolean partial = n.getBoolean("partial");
+            Ui.icon(gg, enc ? Icon.LOCK : Icon.NOTE, cx + 4, y + 3, 16, partial ? Ui.DIM : n.contains("from") ? Ui.GOLD : Ui.ACCENT);
+            // Размер — рядом с названием (память ретро-КПК).
+            String sz = mem != null ? size(n.getInt("size")) : "";
+            if (!sz.isEmpty() && !(partial && hover)) txt(gg, sz, cx + cw - 4 - tw(sz), y + 2, Ui.DIM, false);
+            txt(gg, fit(n.getString("title"), cw - 34 - (sz.isEmpty() ? 0 : tw(sz) + 6)), cx + 24, y + 2, partial ? Ui.DIM : Ui.TEXT, false);
+            String sub;
+            if (partial) {
+                Xfers.Entry dl = Xfers.download(n.getInt("id"));
+                int got = n.getInt("got"), expect = Math.max(1, n.getInt("expect"));
+                int pct = dl == null ? 0 : dl.tag().getInt("done") * 100 / Math.max(1, dl.tag().getInt("total"));
+                sub = dl != null ? Component.translatable("rppda.note.downloading", Math.min(100, pct)).getString()
+                        : Component.translatable("rppda.note.broken", size(got), size(n.getInt("expect"))).getString();
+            } else sub = Ui.time(n.getLong("updated")) + (n.contains("from")
                     ? " · " + Component.translatable("rppda.note.from", n.getString("from")).getString() : "");
-            txt(gg, fit(sub, cw - 34), cx + 24, y + 12, Ui.DIM, false);
-        }, (n, y) -> openNote(n));
+            txt(gg, fit(sub, cw - 34), cx + 24, y + 12, partial && Xfers.download(n.getInt("id")) == null ? Ui.RED : Ui.DIM, false);
+            if (partial && hover) rowIcon(gg, cx + cw - 17, y + 5, Icon.TRASH, "rppda.btn.note_delete", "ndel" + n.getInt("id"), Ui.RED,
+                    () -> armBrokenDelete(n.getInt("id")));
+        }, (n, y) -> {
+            // Битый или ещё качающийся файл не открывается.
+            if (n.getBoolean("partial")) {
+                showToast(Component.translatable(Xfers.download(n.getInt("id")) != null ? "rppda.note.cant_open_dl" : "rppda.note.cant_open"), true);
+                return;
+            }
+            openNote(n);
+        });
+    }
+
+    /** Битую заметку удалить прямо из списка (открыть её нельзя): второе нажатие за 4 с. */
+    private void armBrokenDelete(int id) {
+        long now = System.currentTimeMillis();
+        if (now - noteDeleteArmed > 4000) {
+            noteDeleteArmed = now;
+            showToast(Component.translatable("rppda.toast.confirm_delete"), true);
+            return;
+        }
+        noteDeleteArmed = 0;
+        send("notes.delete", t -> t.putInt("id", id));
     }
 
     private void renderNote(GuiGraphics g) {
@@ -2706,7 +3059,7 @@ public class PdaScreen extends Screen {
     }
 
     private void renderNoteShare(GuiGraphics g, int mx, int my) {
-        title(g, Component.translatable("rppda.screen.note_share"), 22);
+        title(g, Component.translatable(xferMode ? "rppda.screen.note_share_xfer" : "rppda.screen.note_share"), 22);
         List<CompoundTag> rows = new ArrayList<>();
         for (CompoundTag r : chats) if (r.getBoolean("write")) rows.add(r);
         list(g, mx, my, rows, 24, "share", (gg, r, y, hover) -> drawChatRow(gg, r, y), (r, y) -> {
@@ -2726,6 +3079,46 @@ public class PdaScreen extends Screen {
         String body = nl < 0 ? "" : raw.substring(nl + 1).strip();
         if (body.length() > 140) body = body.substring(0, 140) + "…";
         return Component.translatable("rppda.note.card", title).getString() + (body.isEmpty() ? "" : "\n" + body);
+    }
+
+    /** Приглашение скачать файл: «Файл «название» · 312 Б» и «приглашение до 14:35» / «закрыто». */
+    private String fileCard(CompoundTag m) {
+        String title = m.getString("x");
+        String line1 = Component.translatable("rppda.xfer.card", title, size(m.getInt("fsz"))).getString();
+        if ((m.getInt("fl") & 16) != 0) line1 += " · " + Component.translatable("rppda.xfer.encrypted").getString();
+        long exp = m.getLong("fexp");
+        String line2 = exp > System.currentTimeMillis() ? Component.translatable("rppda.xfer.open_until", Ui.clock(exp)).getString()
+                : Component.translatable("rppda.xfer.closed").getString();
+        return line1 + "\n" + line2;
+    }
+
+    /** Строки загрузки под приглашением: у того, кто качает, — своя; у отправителя — по строке на каждого. */
+    private void drawBars(GuiGraphics g, Block b, int x, int y, int w, int step) {
+        if (b.bars == 0 || chatRow == null) return;
+        List<Xfers.Entry> xs = Xfers.of(chatRow.getInt("id"), b.m.getInt("s"));
+        for (int i = 0; i < xs.size() && i < b.bars; i++) {
+            Xfers.Entry e = xs.get(i);
+            CompoundTag t = e.tag();
+            String line = (t.getBoolean("down") ? "" : "→ " + t.getString("who") + "  ") + Xfers.bar(e, true);
+            int st = t.getInt("state");
+            txt(g, fit(line, w), x, y, st == 1 ? Ui.GREEN : st == 2 ? Ui.RED : Ui.ACCENT, false);
+            y += step;
+        }
+    }
+
+    /** Значок у приглашения: открыто — «скачать» (чужое) или «отменить» (своё). Возвращает, нарисован ли. */
+    private boolean fileIcon(GuiGraphics g, int x, int y, CompoundTag m, boolean own) {
+        if (m.getLong("fexp") <= System.currentTimeMillis() || chatRow == null) return false;
+        int chat = chatRow.getInt("id"), seq = m.getInt("s");
+        if (own) rowIcon(g, x, y, Icon.CLOSE, "rppda.btn.xfer_cancel", "xfc" + seq, Ui.RED, () -> send("xfer.cancel", t -> {
+            t.putInt("chat", chat);
+            t.putInt("seq", seq);
+        }));
+        else rowIcon(g, x, y, Icon.SAVE, "rppda.btn.xfer_join", "xfj" + seq, Ui.GOLD, () -> send("xfer.join", t -> {
+            t.putInt("chat", chat);
+            t.putInt("seq", seq);
+        }));
+        return true;
     }
 
     private void acceptNoteIcon(GuiGraphics g, int x, int y, CompoundTag m) {
@@ -2919,22 +3312,23 @@ public class PdaScreen extends Screen {
             if ((fl & 2) != 0) {
                 String n = "— " + Ui.up(noticeText(m.getString("x")).getString()) + " —";
                 List<FormattedCharSequence> lines = font.split(Component.literal(n), cw - 10);
-                out.add(new Block(m, lines, lines.size() * 10 + 2 + (date != null ? 12 : 0), false, true, date, 0, null));
+                out.add(new Block(m, lines, lines.size() * 10 + 2 + (date != null ? 12 : 0), false, true, date, 0, null, 0));
                 continue;
             }
             boolean own = m.getInt("f") == meId;
             boolean deleted = (fl & 1) != 0;
             String text = m.getString("x");
             String body = deleted && text.isEmpty() ? Component.translatable("rppda.chat.deleted").getString()
-                    : (fl & 8) != 0 ? noteCard(text) : (fl & 4) != 0 ? "* " + text : text;
+                    : (fl & 8) != 0 ? noteCard(text) : (fl & 32) != 0 ? fileCard(m) : (fl & 4) != 0 ? "* " + text : text;
             List<FormattedCharSequence> lines = font.split(Component.literal(Ui.up(body)), inner);
             List<FormattedCharSequence> quote = null;
             if (m.getInt("r") > 0) {
                 String q = "» " + (m.contains("rn") ? m.getString("rn") + ": " + (m.getString("rx").isEmpty() ? "…" : m.getString("rx")) : "…");
                 quote = List.of(Language.fit(font, Ui.up(q), inner));
             }
-            int hgt = 10 + (quote != null ? 10 : 0) + lines.size() * 10 + 3;
-            out.add(new Block(m, lines, hgt + (date != null ? 12 : 0), own, false, date, 0, quote));
+            int bars = (fl & 32) != 0 && chatRow != null ? Xfers.of(chatRow.getInt("id"), m.getInt("s")).size() : 0;
+            int hgt = 10 + (quote != null ? 10 : 0) + lines.size() * 10 + bars * 10 + 3;
+            out.add(new Block(m, lines, hgt + (date != null ? 12 : 0), own, false, date, 0, quote, bars));
         }
         blocks = out;
     }
@@ -2981,6 +3375,7 @@ public class PdaScreen extends Screen {
             txt(g, l, cx + 10, y, deleted ? Ui.DIM : Ui.TEXT, false);
             y += 10;
         }
+        drawBars(g, b, cx + 10, y, cw - 14, 10);
         if (hover && !deleted) {
             int seq = m.getInt("s");
             int ix = cx + cw - 15;
@@ -2995,6 +3390,7 @@ public class PdaScreen extends Screen {
                 acceptNoteIcon(g, ix, by, m);
                 ix -= 15;
             }
+            if ((m.getInt("fl") & 32) != 0 && fileIcon(g, ix, by, m, b.own)) ix -= 15;
             if (canWrite) {
                 String rn = b.own ? meName : m.getString("n");
                 String rx = m.getString("x");

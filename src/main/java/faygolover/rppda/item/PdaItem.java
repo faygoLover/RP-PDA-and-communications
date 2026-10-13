@@ -125,6 +125,23 @@ public class PdaItem extends Item {
         return i <= 0 ? 0 : i / 100f;
     }
 
+    /** Ячейки расширения в профиле (память ретро-КПК): что стоит в каждой — плата памяти в КБ или 0 (пусто). */
+    public static final int SLOTS = 4;
+
+    public static int[] slots(ItemStack stack) {
+        CompoundTag t = stack.getTag();
+        int[] raw = t == null ? new int[0] : t.getCompound(TAG).getIntArray("slots");
+        int[] out = new int[SLOTS];
+        System.arraycopy(raw, 0, out, 0, Math.min(raw.length, SLOTS));
+        return out;
+    }
+
+    public static void setSlot(ItemStack stack, int slot, int kb) {
+        int[] s = slots(stack);
+        s[slot] = kb;
+        stack.getOrCreateTagElement(TAG).putIntArray("slots", s);
+    }
+
     public static String formatId(int id) {
         String s = String.format("%08d", id);
         return s.substring(0, 4) + " " + s.substring(4);

@@ -5,7 +5,7 @@
   "compatibilityLevel": "JAVA_17",
   "refmap": "rppda.refmap.json",
   "mixins": [],
-  "client": ["ChatComponentMixin"],
+  "client": ["ChatComponentMixin", "ChatComponentAccess"],
   "injectors": {
     "defaultRequire": 0
   }

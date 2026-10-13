@@ -438,15 +438,49 @@ public final class PdaStore {
 
     public Message append(Chat c, int sender, String text, int replyTo, int flags, @Nullable String gm, long time) {
         ChatLog cl = log(c);
+        // Размер чата — до нового сообщения (у старого чата он сначала оценивается).
+        int before = chatBytes(c);
         Message m = new Message(++c.lastSeq, sender, time, text, replyTo, flags, gm);
         cl.messages.add(m);
         cl.dirty = true;
         c.lastTime = time;
         c.lastSender = sender;
         c.lastPreview = (flags & Message.NOTICE) != 0 ? ""
-                : (flags & Message.NOTE) != 0 ? "#note:" + preview(text.split("\n", 2)[0]) : preview(text);
+                : (flags & Message.NOTE) != 0 ? "#note:" + preview(text.split("\n", 2)[0])
+                : (flags & Message.FILE) != 0 ? "#file:" + preview(fileTitle(text)) : preview(text);
+        c.bytes = before + messageBytes(m);
         chatsDirty = true;
         return m;
+    }
+
+    /** Название файла из текста приглашения ({@link Message#FILE}: номер, размер, название). */
+    public static String fileTitle(String text) {
+        String[] p = text.split("\n", 3);
+        return p.length < 3 ? text : p[2];
+    }
+
+    /** Сколько «весит» сообщение для памяти ретро-КПК: 1 знак = 1 байт (служебные строки — 0). */
+    public static int messageBytes(Message m) {
+        if (m.has(Message.NOTICE)) return 0;
+        String t = m.has(Message.FILE) ? fileTitle(m.text) : m.text;
+        return t.codePointCount(0, t.length());
+    }
+
+    /**
+     * Размер всей переписки. У старых чатов (до памяти ретро-КПК) не считан: оценка по «свежим» сообщениям — их
+     * сумма плюс средний размер на каждое ушедшее в архив.
+     */
+    public int chatBytes(Chat c) {
+        if (c.bytes >= 0) return c.bytes;
+        ChatLog cl = log(c);
+        long sum = 0;
+        int n = cl.messages.size();
+        for (Message m : cl.messages) sum += messageBytes(m);
+        long archivedCount = Math.max(0, c.lastSeq - cl.messages.size());
+        long est = sum + (n == 0 ? 0 : archivedCount * sum / n);
+        c.bytes = (int) Math.min(Integer.MAX_VALUE, est);
+        chatsDirty = true;
+        return c.bytes;
     }
 
     private static String preview(String text) {

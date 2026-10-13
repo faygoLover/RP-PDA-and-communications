@@ -43,8 +43,14 @@ public final class Views {
         t.putBoolean("character", PdaServer.store.characterMode.contains(sp.getUUID()));
         if (!s.system) {
             Account dev = store.account(s.device);
-            if (dev != null) t.put("look", dev.look.save());
+            if (dev != null) {
+                t.put("look", dev.look.save());
+                // Память ретро-КПК (реалистичные ретро-КПК): занято, объём, ячейки расширения.
+                if (Memory.limited(dev)) t.put("mem", Memory.view(sp, dev, s));
+            }
         }
+        // Заметками делятся приглашением с передачей рядом (у системного КПК — по-старому).
+        t.putBoolean("xfer", faygolover.rppda.config.PdaConfig.realisticRetro && !s.system);
         long cut = cut(sp, s);
         t.putBoolean("signal", cut == Long.MAX_VALUE);
         t.putBoolean("silent", a.silent);
@@ -146,7 +152,8 @@ public final class Views {
             Message m = lastVisible(store, c, cut);
             int seq = m == null ? 0 : m.seq;
             t.putInt("unread", c.has(viewer.id) ? Math.max(0, seq - viewer.lastRead.getOrDefault(c.id, 0)) : 0);
-            String lt = m == null ? "" : m.has(Message.NOTE) ? "#note:" + noteTitle(m.text) : m.text;
+            String lt = m == null ? "" : m.has(Message.NOTE) ? "#note:" + noteTitle(m.text)
+                    : m.has(Message.FILE) ? "#file:" + PdaStore.fileTitle(m.text) : m.text;
             t.putString("last", m == null || m.deleted() || m.has(Message.NOTICE) ? "" : lt.length() > 60 ? lt.substring(0, 60) + "…" : lt);
             t.putLong("time", m == null ? c.created : m.time);
             if (m != null && m.sender != 0) t.putString("lastFrom", nameFor(store, viewer, m.sender));
@@ -180,6 +187,7 @@ public final class Views {
         t.putBoolean("isAdmin", c.admin == viewer.id && c.isGroup());
         t.putBoolean("member", c.has(viewer.id));
         t.putInt("count", c.type == Chat.Type.GLOBAL ? 0 : c.members.size());
+        if (faygolover.rppda.config.PdaConfig.realisticRetro) t.putInt("size", store.chatBytes(c));
         return t;
     }
 
@@ -194,7 +202,12 @@ public final class Views {
         t.putInt("fs", m.sender);
         t.putLong("t", m.time);
         // Заметка в чате — только название (прочитать — добавить себе); текст не уходит клиенту.
-        String x = m.has(Message.NOTE) ? noteTitle(m.text) : m.text;
+        String x = m.has(Message.NOTE) ? noteTitle(m.text) : m.has(Message.FILE) ? PdaStore.fileTitle(m.text) : m.text;
+        if (m.has(Message.FILE)) {
+            // Приглашение скачать файл: размер и сколько ещё открыто.
+            t.putInt("fsz", Transfers.sizeOf(m));
+            t.putLong("fleft", Transfers.left(c.id, m.seq));
+        }
         t.putString("x", m.deleted() && !s.system ? "" : x);
         t.putInt("fl", m.flags);
         if (m.gm != null && s.system) t.putString("g", m.gm);
@@ -204,7 +217,8 @@ public final class Views {
             Message r = log.find(m.replyTo);
             if (r != null) {
                 t.putString("rn", r.sender == 0 ? store.system().name : nameFor(store, viewer, r.sender));
-                t.putString("rx", r.deleted() && !s.system ? "" : cut(r.has(Message.NOTE) ? noteTitle(r.text) : r.text));
+                t.putString("rx", r.deleted() && !s.system ? "" : cut(r.has(Message.NOTE) ? noteTitle(r.text)
+                        : r.has(Message.FILE) ? PdaStore.fileTitle(r.text) : r.text));
             }
         }
         return t;

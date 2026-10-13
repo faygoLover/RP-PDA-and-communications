@@ -11,6 +11,8 @@ public final class ClientPda {
 
     /** Метка строк КПК в чате игры: голубая полоска слева и голубой фон (миксин чата). */
     public static final GuiMessageTag TAG = new GuiMessageTag(0x4FA3FF, null, Component.translatable("rppda.chat.tag"), "RP PDA");
+    /** Строки загрузки файла (их убирают и добавляют заново раз в секунду — {@link Xfers}). */
+    public static final GuiMessageTag XFER_TAG = new GuiMessageTag(0x4FA3FF, null, Component.translatable("rppda.chat.tag_xfer"), "RP PDA");
 
     static int unread;
     static boolean hasActive;
@@ -27,6 +29,10 @@ public final class ClientPda {
                 if (c != null) mc.gui.getChat().addMessage(c, null, TAG);
             }
             case "avatars" -> Avatars.receive(d);
+            case "xfer" -> {
+                Xfers.receive(d);
+                if (mc.screen instanceof PdaScreen p) p.receive(op, d);
+            }
             case "avatar.upload" -> AvatarPics.upload(d.getString("key"));
             case "close" -> {
                 if (mc.screen instanceof PdaScreen) mc.setScreen(null);
@@ -55,5 +61,7 @@ public final class ClientPda {
         hasActive = false;
         Avatars.reset(true);
         AvatarPics.clear();
+        Duotone.clear();
+        Xfers.reset();
     }
 }

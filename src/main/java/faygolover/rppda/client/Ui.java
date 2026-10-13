@@ -115,6 +115,7 @@ public final class Ui {
     public static String human(String s) {
         if (s.contains("#deleted")) s = s.replace("#deleted", Component.translatable("rppda.account.deleted").getString());
         if (s.contains("#note:")) s = s.replace("#note:", Component.translatable("rppda.note.preview").getString());
+        if (s.contains("#file:")) s = s.replace("#file:", Component.translatable("rppda.xfer.preview").getString());
         return s;
     }
 
@@ -253,12 +254,13 @@ public final class Ui {
         String mark = st.mark().isEmpty() ? (name.isEmpty() ? "?" : name.substring(0, name.offsetByCodePoints(0, 1))) : st.mark();
         Font font = Minecraft.getInstance().font;
         if (retro) {
-            // Люминофор одноцветный: рамка и знаки (у Системы — звезда).
+            // Люминофор: рамка; лицо, портрет и картинка — перекрашены в два цвета экрана; иначе знаки (у Системы — звезда).
             g.renderOutline(x, y, size, size, DIM);
             if (id == 0 && owner == null) {
                 icon(g, Icon.SYSTEM, x + 1, y + 1, size - 2, TEXT);
                 return;
             }
+            if (Duotone.draw(g, retroSource(st, owner, id), st.mode() != 3, x + 1, y + 1, size - 2, SCREEN, TEXT)) return;
             mark(g, font, up(mark), x, y, size, size >= 24 ? 2f : 1f, TEXT);
             return;
         }
@@ -281,6 +283,21 @@ public final class Ui {
         int hue = Math.floorMod(id * 2654435761L >>> 8, 360);
         g.fill(x, y, x + size, y + size, chosen != null ? chosen : 0xFF000000 | hsv(hue, 0.45f, 0.62f));
         mark(g, font, st.mark().isEmpty() ? mark.toUpperCase() : mark, x, y, size, size / 16f, 0xFFFFFFFF);
+    }
+
+    /** Что перекрашивать в ретро: скин (лицо, пока игрок в сети), фото скина (портрет) или свою картинку; null — знаки. */
+    @Nullable
+    private static ResourceLocation retroSource(Avatars.Style st, @Nullable UUID owner, int id) {
+        Minecraft mc = Minecraft.getInstance();
+        return switch (st.mode()) {
+            case 0 -> {
+                PlayerInfo info = owner == null || mc.getConnection() == null ? null : mc.getConnection().getPlayerInfo(owner);
+                yield info == null ? null : info.getSkinLocation();
+            }
+            case 2 -> owner == null ? null : faygolover.rpcore.client.photo.ClientPhotos.skin(owner);
+            case 3 -> st.pic() > 0 ? faygolover.rpcore.client.photo.ClientPictures.texture("rppda:avatar/" + id) : null;
+            default -> null;
+        };
     }
 
     /** Знаки по центру квадрата; два широких — мельче, чтобы влезли. */

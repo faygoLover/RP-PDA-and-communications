@@ -27,6 +27,8 @@ public final class Chat {
     /** Сколько кусков по {@link PdaStore#CHUNK} сообщений уже в архиве: в «свежих» — с {@code archived*CHUNK+1}. */
     public int archived;
     public long created;
+    /** Сколько знаков во всей переписке (размер чата для памяти ретро-КПК); −1 — ещё не считали (старый чат). */
+    public int bytes = -1;
 
     public Chat(int id, Type type) {
         this.id = id;
@@ -66,6 +68,7 @@ public final class Chat {
         t.putString("lastPreview", lastPreview);
         t.putInt("archived", archived);
         t.putLong("created", created);
+        if (bytes >= 0) t.putInt("bytes", bytes);
         return t;
     }
 
@@ -87,6 +90,7 @@ public final class Chat {
         c.lastPreview = t.getString("lastPreview");
         c.archived = t.getInt("archived");
         c.created = t.getLong("created");
+        c.bytes = t.contains("bytes") ? t.getInt("bytes") : -1;
         return c;
     }
 }
