@@ -270,9 +270,10 @@ public final class Ui {
             return;
         }
         Minecraft mc = Minecraft.getInstance();
-        if (st.mode() == 2 && owner != null && faygolover.rpcore.client.photo.ClientPhotos.drawFace(g, owner, x, y, size)) return;
+        boolean portrait = st.mode() == 0 || st.mode() == 2;
+        if (portrait && owner != null && faygolover.rpcore.client.photo.ClientPhotos.drawFace(g, owner, x, y, size)) return;
         if (st.mode() == 3 && AvatarPics.draw(g, id, st.pic(), x, y, size)) return;
-        if (st.mode() == 0 && owner != null && mc.getConnection() != null) {
+        if (portrait && owner != null && mc.getConnection() != null) {
             PlayerInfo info = mc.getConnection().getPlayerInfo(owner);
             if (info != null) {
                 PlayerFaceRenderer.draw(g, info.getSkinLocation(), x, y, size);
@@ -290,11 +291,13 @@ public final class Ui {
     private static ResourceLocation retroSource(Avatars.Style st, @Nullable UUID owner, int id) {
         Minecraft mc = Minecraft.getInstance();
         return switch (st.mode()) {
-            case 0 -> {
-                PlayerInfo info = owner == null || mc.getConnection() == null ? null : mc.getConnection().getPlayerInfo(owner);
+            case 0, 2 -> {
+                if (owner == null) yield null;
+                ResourceLocation photo = faygolover.rpcore.client.photo.ClientPhotos.skin(owner);
+                if (photo != null) yield photo;
+                PlayerInfo info = mc.getConnection() == null ? null : mc.getConnection().getPlayerInfo(owner);
                 yield info == null ? null : info.getSkinLocation();
             }
-            case 2 -> owner == null ? null : faygolover.rpcore.client.photo.ClientPhotos.skin(owner);
             case 3 -> st.pic() > 0 ? faygolover.rpcore.client.photo.ClientPictures.texture("rppda:avatar/" + id) : null;
             default -> null;
         };

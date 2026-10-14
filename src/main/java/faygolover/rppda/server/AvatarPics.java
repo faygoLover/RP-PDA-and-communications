@@ -43,6 +43,13 @@ public final class AvatarPics {
         pending.remove(player);
     }
 
+    /** Сколько секунд игроку ждать до следующей загрузки картинки (0 — можно сейчас). */
+    static int waitSeconds(ServerPlayer sp) {
+        Long last = lastUpload.get(sp.getUUID());
+        long left = last == null ? 0 : PdaConfig.avatarUploadSeconds * 1000L - (System.currentTimeMillis() - last);
+        return left <= 0 ? 0 : (int) (left / 1000 + 1);
+    }
+
     /** Окно учётки {@code me} хочет загрузить картинку: разрешить в Core и сказать клиенту, куда слать. */
     static void begin(ServerPlayer sp, Account me) {
         long now = System.currentTimeMillis();

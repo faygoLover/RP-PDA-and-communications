@@ -39,7 +39,6 @@
   "rppda.err.offer_pending": "Request already sent — wait for an answer",
   "rppda.err.offer_gone": "The request has expired",
   "rppda.avatar.kind": "Kind",
-  "rppda.avatar.face": "Face",
   "rppda.avatar.letter": "Letter on color",
   "rppda.avatar.color": "Color",
   "rppda.avatar.color_auto": "Auto (by account ID)",
@@ -59,9 +58,6 @@
   "rppda.err.avatar_file": "This file won't do: use a PNG, JPG or BMP picture",
   "rppda.toast.avatar_saved": "Picture saved",
   "rppda.err.avatar_too_soon": "You can change the picture in %s s",
-  "rppda.avatar.hint": "\"Face\" uses your skin while you are online. \"Portrait\" is a skin snapshot shown even when you are away. \"Picture\" is a file from your computer (cropped to a square). Without a face or picture, the mark on a color is shown: 1–2 characters, empty — first letter of the name.",
-  "rppda.avatar.hint_retro": "On a retro screen the face, portrait and picture are shown in the two screen colors; «marks on color» shows only the marks. Marks — 1–2 characters, empty — first letter of the name.",
-  "rppda.profile.avatar_face": "Avatar: character's face",
   "rppda.profile.avatar_letter": "Avatar: mark on a color",
   "rppda.profile.avatar_portrait": "Avatar: portrait",
   "rppda.profile.avatar_picture": "Avatar: own picture",
@@ -134,7 +130,6 @@
   "rppda.profile.pw_off": "No password",
   "rppda.profile.sound": "Nearby players hear notifications",
   "rppda.profile.silent": "Silent mode",
-  "rppda.profile.hint": "With a password the PDA locks as soon as it leaves your inventory. Without one, anyone who picks it up can use it.",
   "rppda.chat.tag": "PDA message",
   "rppda.chat.global": "Global chat",
   "rppda.chat.global_sub": "Everyone with a PDA",
@@ -456,5 +451,6 @@
   "rppda.note.cant_open": "The file is broken — can't open",
   "rppda.note.cant_open_dl": "Still downloading",
   "rppda.mem.ok": "OK",
-  "rppda.size.point": "."
+  "rppda.size.point": ".",
+  "rppda.avatar.file_wait": "can change in %s s"
 }

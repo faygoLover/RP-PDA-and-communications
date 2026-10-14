@@ -422,8 +422,11 @@ public final class Actions {
                 if (me.kind == Account.Kind.SYSTEM) return;
                 int mode = d.getInt("mode");
                 if (mode < Account.AV_FACE || mode > Account.AV_PICTURE) return;
-                // Портрет — фото скина владельца (у NPC владельца нет).
+                // Портрет — фото скина владельца (у NPC владельца нет). «Лицо» больше не выбирается: у игрока это портрет.
+                if (mode == Account.AV_FACE) mode = me.owner != null ? Account.AV_PORTRAIT : Account.AV_LETTER;
                 if (mode == Account.AV_PORTRAIT && me.owner == null) return;
+                // Свой портрет — переснять скин (вдруг сменился); фото хранит RP Core, видно и когда игрок не в сети.
+                if (mode == Account.AV_PORTRAIT && me.owner.equals(sp.getUUID())) faygolover.rpcore.api.Photos.request(sp);
                 int color = d.getInt("color");
                 me.avatarColor = color >= 0 && color < Account.AV_COLORS ? color : -1;
                 me.avatarMark = avatarMark(d.getString("mark"));

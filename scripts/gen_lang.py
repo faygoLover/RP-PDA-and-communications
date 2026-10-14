@@ -46,7 +46,6 @@ L = {
     "rppda.err.offer_pending": ("Запрос уже отправлен — ждите ответа", "Request already sent — wait for an answer"),
     "rppda.err.offer_gone": ("Запрос больше не действует", "The request has expired"),
     "rppda.avatar.kind": ("Вид", "Kind"),
-    "rppda.avatar.face": ("Лицо", "Face"),
     "rppda.avatar.letter": ("Буква на цвете", "Letter on color"),
     "rppda.avatar.color": ("Цвет", "Color"),
     "rppda.avatar.color_auto": ("Авто (по номеру учётки)", "Auto (by account ID)"),
@@ -58,6 +57,7 @@ L = {
     "rppda.avatar.file_new": ("выбрана — сохранится по «Готово»", "chosen — saved on OK"),
     "rppda.avatar.file_old": ("загружена раньше", "uploaded before"),
     "rppda.avatar.file_none": ("файл не выбран", "no file chosen"),
+    "rppda.avatar.file_wait": ("сменить можно через %s с", "can change in %s s"),
     "rppda.btn.pick_file": ("Выбрать файл…", "Choose file…"),
     "rppda.btn.avatar_reset": ("Сбросить картинку-аватарку", "Remove the avatar picture"),
     "rppda.log.avatar_reset": ("сбросил картинку-аватарку", "removed avatar picture"),
@@ -66,17 +66,6 @@ L = {
     "rppda.err.avatar_file": ("Этот файл не подходит: нужна картинка PNG, JPG или BMP", "This file won't do: use a PNG, JPG or BMP picture"),
     "rppda.toast.avatar_saved": ("Картинка сохранена", "Picture saved"),
     "rppda.err.avatar_too_soon": ("Картинку можно сменить через %s с", "You can change the picture in %s s"),
-    "rppda.avatar.hint": ("«Лицо» — лицо по скину, пока вы в сети. «Портрет» — снимок скина, виден и когда вас нет. "
-                          "«Картинка» — файл с компьютера (обрежется до квадрата). Пока лица или картинки нет — знаки на цвете: "
-                          "1–2 символа, пусто — первая буква имени.",
-                          "\"Face\" uses your skin while you are online. \"Portrait\" is a skin snapshot shown even when you are away. "
-                          "\"Picture\" is a file from your computer (cropped to a square). Without a face or picture, the mark on a color "
-                          "is shown: 1–2 characters, empty — first letter of the name."),
-    "rppda.avatar.hint_retro": ("На экране ретро видны только знаки: лица, картинки и цвета увидят владельцы КПК современного вида. "
-                                "Знаки — 1–2 символа, пусто — первая буква имени.",
-                                "A retro screen shows only the mark; owners of modern-look PDAs see faces, pictures and colors. "
-                                "Mark: 1–2 characters, empty — first letter of the name."),
-    "rppda.profile.avatar_face": ("Аватарка: лицо персонажа", "Avatar: character's face"),
     "rppda.profile.avatar_letter": ("Аватарка: знаки на цвете", "Avatar: mark on a color"),
     "rppda.profile.avatar_portrait": ("Аватарка: портрет", "Avatar: portrait"),
     "rppda.profile.avatar_picture": ("Аватарка: своя картинка", "Avatar: own picture"),
@@ -149,10 +138,6 @@ L = {
     "rppda.profile.pw_off": ("Без пароля", "No password"),
     "rppda.profile.sound": ("Звук уведомлений слышат игроки рядом", "Nearby players hear notifications"),
     "rppda.profile.silent": ("Беззвучный режим", "Silent mode"),
-    "rppda.profile.hint": ("С паролем КПК блокируется, как только покидает ваш инвентарь (выбросили, положили в сундук, "
-                           "умерли, вышли с сервера). Без пароля им может пользоваться любой, кто его взял.",
-                           "With a password the PDA locks as soon as it leaves your inventory. "
-                           "Without one, anyone who picks it up can use it."),
     "rppda.chat.tag": ("Сообщение КПК", "PDA message"),
     "rppda.chat.global": ("Общий чат", "Global chat"),
     "rppda.chat.global_sub": ("Все, у кого есть КПК", "Everyone with a PDA"),

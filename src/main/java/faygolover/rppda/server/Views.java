@@ -55,6 +55,8 @@ public final class Views {
         t.putBoolean("signal", cut == Long.MAX_VALUE);
         t.putBoolean("silent", a.silent);
         t.putBoolean("pw", a.hasPassword());
+        // Через сколько секунд можно сменить картинку-аватарку (страница «Аватарка» показывает ожидание).
+        t.putInt("avWait", AvatarPics.waitSeconds(sp));
         t.putInt("maxLen", faygolover.rppda.config.PdaConfig.maxLength);
         t.putString("style", faygolover.rppda.config.PdaConfig.style);
         t.putBoolean("allowOut", faygolover.rppda.config.PdaConfig.allowChatOutput || PdaServer.isAdmin(sp));

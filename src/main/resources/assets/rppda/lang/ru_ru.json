@@ -39,7 +39,6 @@
   "rppda.err.offer_pending": "Запрос уже отправлен — ждите ответа",
   "rppda.err.offer_gone": "Запрос больше не действует",
   "rppda.avatar.kind": "Вид",
-  "rppda.avatar.face": "Лицо",
   "rppda.avatar.letter": "Буква на цвете",
   "rppda.avatar.color": "Цвет",
   "rppda.avatar.color_auto": "Авто (по номеру учётки)",
@@ -59,9 +58,6 @@
   "rppda.err.avatar_file": "Этот файл не подходит: нужна картинка PNG, JPG или BMP",
   "rppda.toast.avatar_saved": "Картинка сохранена",
   "rppda.err.avatar_too_soon": "Картинку можно сменить через %s с",
-  "rppda.avatar.hint": "«Лицо» — лицо по скину, пока вы в сети. «Портрет» — снимок скина, виден и когда вас нет. «Картинка» — файл с компьютера (обрежется до квадрата). Пока лица или картинки нет — знаки на цвете: 1–2 символа, пусто — первая буква имени.",
-  "rppda.avatar.hint_retro": "На ретро-экране лицо, портрет и картинка — в двух цветах экрана; «знаки на цвете» — только знаки. Знаки — 1–2 символа, пусто — первая буква имени.",
-  "rppda.profile.avatar_face": "Аватарка: лицо персонажа",
   "rppda.profile.avatar_letter": "Аватарка: знаки на цвете",
   "rppda.profile.avatar_portrait": "Аватарка: портрет",
   "rppda.profile.avatar_picture": "Аватарка: своя картинка",
@@ -134,7 +130,6 @@
   "rppda.profile.pw_off": "Без пароля",
   "rppda.profile.sound": "Звук уведомлений слышат игроки рядом",
   "rppda.profile.silent": "Беззвучный режим",
-  "rppda.profile.hint": "С паролем КПК блокируется, как только покидает ваш инвентарь (выбросили, положили в сундук, умерли, вышли с сервера). Без пароля им может пользоваться любой, кто его взял.",
   "rppda.chat.tag": "Сообщение КПК",
   "rppda.chat.global": "Общий чат",
   "rppda.chat.global_sub": "Все, у кого есть КПК",
@@ -456,5 +451,6 @@
   "rppda.note.cant_open": "Файл повреждён — не открывается",
   "rppda.note.cant_open_dl": "Файл ещё качается",
   "rppda.mem.ok": "ОК",
-  "rppda.size.point": ","
+  "rppda.size.point": ",",
+  "rppda.avatar.file_wait": "сменить можно через %s с"
 }

@@ -130,6 +130,8 @@ public class PdaScreen extends Screen {
     private int nearbyTicks;
     /** Своя аватарка: что сейчас и правка на странице «Аватарка». */
     private int meAv, meAvColor = -1, meAvPic, editAv, editAvColor = -1;
+    /** Когда (по часам клиента) можно сменить картинку-аватарку. */
+    private long avReadyAt;
     /** Выбранный файл (PNG 64×64) и его предпросмотр — до «Готово». */
     @Nullable
     private byte[] pendingPng;
@@ -535,6 +537,7 @@ public class PdaScreen extends Screen {
         meAvColor = me.contains("avColor") ? me.getInt("avColor") : -1;
         meAvMark = me.getString("avMark");
         meAvPic = me.getInt("avPic");
+        avReadyAt = System.currentTimeMillis() + d.getInt("avWait") * 1000L;
         Avatars.put(me);
         system = d.getBoolean("system");
         admin = d.getBoolean("admin");
@@ -2070,6 +2073,7 @@ public class PdaScreen extends Screen {
 
     private void openAvatar() {
         editAv = meAv;
+        if (editAv == 0 || editAv == 2) editAv = meOwner != null ? 2 : 1;
         editAvColor = meAvColor;
         editAvMark = meAvMark;
         setPage(Page.AVATAR);
@@ -2090,6 +2094,10 @@ public class PdaScreen extends Screen {
             }
             String mark = avMarkBox == null ? editAvMark : avMarkBox.getValue();
             boolean upload = editAv == 3 && pendingPng != null;
+            if (upload && avWait() > 0) {
+                showToast(Component.translatable("rppda.err.avatar_too_soon", avWait()), true);
+                return;
+            }
             if (upload) AvatarPics.queue(pendingPng);
             send("profile.avatar", t -> {
                 t.putInt("mode", editAv);
@@ -2111,19 +2119,26 @@ public class PdaScreen extends Screen {
                     }, err -> showToast(Component.translatable(err), true))));
         }
         avMarkBox = new Ui.Box(font, cx + 104, avatarMarkY(), 30, retro ? 10 : 14, Component.translatable("rppda.avatar.mark"));
-        avMarkBox.setMaxLength(4);
+        avMarkBox.setMaxLength(2);
         avMarkBox.setValue(editAvMark);
         box(avMarkBox);
         avMarkBox.setResponder(v -> editAvMark = v);
         addRenderableWidget(avMarkBox);
     }
 
-    /** Страница «Аватарка»: вид, цвета (переносятся по строкам), знаки. */
+    /** Секунд до разрешения сменить картинку (0 — можно). */
+    private int avWait() {
+        long left = avReadyAt - System.currentTimeMillis();
+        return left <= 0 ? 0 : (int) (left / 1000 + 1);
+    }
+
+    /** Страница «Аватарка»: вид, цвета (переносятся по строкам; на ретро их нет — экран в два цвета), знаки. */
     private int avatarColorsPerRow() {
         return Math.max(4, (cw - 104 - 4) / 15);
     }
 
     private int avatarMarkY() {
+        if (retro) return avatarColorsY();
         int per = avatarColorsPerRow();
         int rows = (Avatars.COLORS.length + 1 + per - 1) / per;
         return avatarColorsY() + rows * 15 + 2;
@@ -2154,17 +2169,22 @@ public class PdaScreen extends Screen {
         int lx = cx + 46, vx = cx + 104;
         int y = cy + 26;
         txt(g, Component.translatable("rppda.avatar.kind"), lx, y, Ui.DIM, false);
-        int x = avatarChip(g, vx, y, "rppda.avatar.face", 0);
-        avatarChip(g, x, y, "rppda.avatar.letter", 1);
-        x = vx;
-        // Портрет — фото скина владельца (у NPC владельца нет).
-        if (meOwner != null) x = avatarChip(g, x, y + 13, "rppda.avatar.portrait", 2);
-        avatarChip(g, x, y + 13, "rppda.avatar.picture", 3);
+        // Портрет — фото скина владельца (у NPC владельца нет): виден всегда, даже когда игрок не в сети.
+        int x = vx;
+        if (meOwner != null) x = avatarChip(g, x, y, "rppda.avatar.portrait", 2);
+        x = avatarChip(g, x, y, "rppda.avatar.letter", 1);
+        avatarChip(g, x, y, "rppda.avatar.picture", 3);
         if (editAv == 3) {
+            int wait = avWait();
             String st = pendingPng != null ? "rppda.avatar.file_new" : meAvPic > 0 ? "rppda.avatar.file_old" : "rppda.avatar.file_none";
             Component pick = Component.translatable("rppda.btn.pick_file");
-            txt(g, Component.translatable(st), vx + tw(pick) + 34, cy + 56, pendingPng != null ? Ui.GREEN : Ui.DIM, false);
+            Component status = wait > 0 && pendingPng != null ? Component.translatable("rppda.avatar.file_wait", wait) : Component.translatable(st);
+            txt(g, fit(status.getString(), cx + cw - (vx + tw(pick) + 34) - 4), vx + tw(pick) + 34, cy + 56,
+                    wait > 0 && pendingPng != null ? Ui.GOLD : pendingPng != null ? Ui.GREEN : Ui.DIM, false);
         }
+        int my0 = avatarMarkY();
+        txt(g, Component.translatable("rppda.avatar.mark"), lx, my0 + (retro ? 1 : 3), Ui.DIM, false);
+        if (retro) return;
         y = avatarColorsY();
         txt(g, Component.translatable("rppda.avatar.color"), lx, y, Ui.DIM, false);
         int per = avatarColorsPerRow();
@@ -2181,16 +2201,6 @@ public class PdaScreen extends Screen {
             if (editAvColor == c) g.renderOutline(bx - 1, by - 1, 14, 14, Ui.TEXT);
             hots.add(new Hot(bx - 1, by - 1, 14, 14, "avc" + i,
                     Component.translatable(i < 0 ? "rppda.avatar.color_auto" : "rppda.avatar.color_n", n), () -> editAvColor = c));
-        }
-        int my0 = avatarMarkY();
-        txt(g, Component.translatable("rppda.avatar.mark"), lx, my0 + (retro ? 1 : 3), Ui.DIM, false);
-        List<FormattedCharSequence> hint = font.split(Component.literal(Ui.up(Component.translatable(
-                retro ? "rppda.avatar.hint_retro" : "rppda.avatar.hint").getString())), cw - 12);
-        int hy = my0 + 22;
-        for (FormattedCharSequence l : hint) {
-            if (hy + 9 > cy + ch) break;
-            txt(g, l, cx + 6, hy, Ui.HINT, false);
-            hy += 9;
         }
     }
 
@@ -2252,17 +2262,10 @@ public class PdaScreen extends Screen {
         txt(g, fit(snd.getString(), right - cx - 28), cx + 28, by + st + 5, Ui.DIM, false);
         int rows = 2;
         if (!meKind.equals("SYSTEM")) {
-            String[] kinds = {"rppda.profile.avatar_face", "rppda.profile.avatar_letter", "rppda.profile.avatar_portrait", "rppda.profile.avatar_picture"};
+            String[] kinds = {meOwner != null ? "rppda.profile.avatar_portrait" : "rppda.profile.avatar_letter",
+                    "rppda.profile.avatar_letter", "rppda.profile.avatar_portrait", "rppda.profile.avatar_picture"};
             txt(g, fit(Component.translatable(kinds[Math.max(0, Math.min(3, meAv))]).getString(), right - cx - 28), cx + 28, by + 2 * st + 5, Ui.DIM, false);
             rows = 3;
-        }
-        int hintW = mem != null ? cw - memW() - 16 : cw - 12;
-        List<FormattedCharSequence> hint = font.split(Component.literal(Ui.up(Component.translatable("rppda.profile.hint").getString())), hintW);
-        int hy = by + rows * st + 4;
-        for (FormattedCharSequence l : hint) {
-            if (hy + 9 > cy + ch) break;
-            txt(g, l, cx + 6, hy, Ui.HINT, false);
-            hy += 9;
         }
         if (mem != null) renderMemory(g, by);
     }
