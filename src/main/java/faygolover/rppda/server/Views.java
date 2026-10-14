@@ -154,6 +154,7 @@ public final class Views {
             t.putInt("unread", c.has(viewer.id) ? Math.max(0, seq - viewer.lastRead.getOrDefault(c.id, 0)) : 0);
             String lt = m == null ? "" : m.has(Message.NOTE) ? "#note:" + noteTitle(m.text)
                     : m.has(Message.FILE) ? "#file:" + PdaStore.fileTitle(m.text) : m.text;
+            if (m != null && m.sender != viewer.id && Illiterate.is(s)) lt = Illiterate.scribble(lt);
             t.putString("last", m == null || m.deleted() || m.has(Message.NOTICE) ? "" : lt.length() > 60 ? lt.substring(0, 60) + "…" : lt);
             t.putLong("time", m == null ? c.created : m.time);
             if (m != null && m.sender != 0) t.putString("lastFrom", nameFor(store, viewer, m.sender));
@@ -180,7 +181,8 @@ public final class Views {
         t.putString("notify", viewer.notify(c.id).name());
         t.putBoolean("out", viewer.chatOut.contains(c.id));
         boolean before = c.type == Chat.Type.GLOBAL && viewer.id != 0 && c.lastTime < viewer.created;
-        t.putString("last", before ? "" : c.lastPreview);
+        boolean scribble = c.lastSender != viewer.id && Illiterate.is(s);
+        t.putString("last", before ? "" : scribble ? Illiterate.scribble(c.lastPreview) : c.lastPreview);
         t.putLong("time", before ? 0 : c.lastTime);
         if (c.lastSeq > 0 && c.lastSender != 0) t.putString("lastFrom", nameFor(store, viewer, c.lastSender));
         t.putBoolean("write", c.canWrite(viewer.id));
@@ -208,6 +210,9 @@ public final class Views {
             t.putInt("fsz", Transfers.sizeOf(m));
             t.putLong("fleft", Transfers.left(c.id, m.seq));
         }
+        // Неграмотный: чужое — каракулями (служебные строки и действия — как есть).
+        boolean illiterate = Illiterate.is(s);
+        if (illiterate && viewer != null && m.sender != viewer.id && !m.has(Message.NOTICE) && !m.has(Message.ACTION)) x = Illiterate.scribble(x);
         t.putString("x", m.deleted() && !s.system ? "" : x);
         t.putInt("fl", m.flags);
         if (m.gm != null && s.system) t.putString("g", m.gm);
@@ -217,8 +222,10 @@ public final class Views {
             Message r = log.find(m.replyTo);
             if (r != null) {
                 t.putString("rn", r.sender == 0 ? store.system().name : nameFor(store, viewer, r.sender));
-                t.putString("rx", r.deleted() && !s.system ? "" : cut(r.has(Message.NOTE) ? noteTitle(r.text)
-                        : r.has(Message.FILE) ? PdaStore.fileTitle(r.text) : r.text));
+                String rx = r.deleted() && !s.system ? "" : cut(r.has(Message.NOTE) ? noteTitle(r.text)
+                        : r.has(Message.FILE) ? PdaStore.fileTitle(r.text) : r.text);
+                if (illiterate && viewer != null && r.sender != viewer.id) rx = Illiterate.scribble(rx);
+                t.putString("rx", rx);
             }
         }
         return t;

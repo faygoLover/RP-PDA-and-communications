@@ -70,6 +70,10 @@ public final class Cipher {
         if (!readable(sp, me, n)) {
             t.putString("text", n.masked());
             t.putBoolean("locked", true);
+        } else if (Illiterate.is(sp) && (n.from != null || me.owner == null || !me.owner.equals(sp.getUUID()))) {
+            // Неграмотный: чужая заметка (поделились или чужой КПК) — каракулями.
+            t.putString("text", Illiterate.scribble(n.text));
+            t.putString("title", Illiterate.scribble(n.title));
         }
         if (n.cipher) t.put("bounds", new IntArrayTag(Note.bounds(n.text)));
         return t;
