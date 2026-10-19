@@ -339,7 +339,7 @@ public class PdaScreen extends Screen {
                     setPage(Page.CHATS);
                     // Только что открыли: память переполнена — окно ошибки; почти заполнена — предупреждение.
                     if (memOver()) showMemError();
-                    else if (mem != null && !mem.getBoolean("admin") && mem.getInt("used") * 10L >= mem.getInt("cap") * 9L)
+                    else if (memOn() && !mem.getBoolean("admin") && mem.getInt("used") * 10L >= mem.getInt("cap") * 9L)
                         showToast(Component.translatable("rppda.mem.almost"), true);
                 } else if (page == Page.PASSWORD) setPage(Page.PROFILE);
                 else rebuild();
@@ -599,7 +599,12 @@ public class PdaScreen extends Screen {
 
     /** Занято больше, чем есть (админу лимит не писан). */
     private boolean memOver() {
-        return mem != null && !mem.getBoolean("admin") && mem.getInt("used") > mem.getInt("cap");
+        return memOn() && !mem.getBoolean("admin") && mem.getInt("used") > mem.getInt("cap");
+    }
+
+    /** Память ретро-КПК считается (реалистичные ретро-КПК). Без них у ретро-КПК есть только ячейки для плат. */
+    private boolean memOn() {
+        return mem != null && !mem.getBoolean("slots_only");
     }
 
     private void showMemError() {
@@ -1744,7 +1749,7 @@ public class PdaScreen extends Screen {
         int unread = r.getInt("unread");
         String time = Ui.time(r.getLong("time"));
         // Память ретро-КПК: размер переписки — рядом с названием.
-        if (mem != null && r.contains("size")) time = size(r.getInt("size")) + (time.isEmpty() ? "" : "  " + time);
+        if (memOn() && r.contains("size")) time = size(r.getInt("size")) + (time.isEmpty() ? "" : "  " + time);
         int tw = tw(time);
         txt(g, fit(chatTitle(r).getString(), cw - 34 - tw), cx + 24, y + 3, unread > 0 ? onTile() : Ui.TEXT, false);
         txt(g, time, cx + cw - tw - 4, y + 3, Ui.DIM, false);
@@ -1864,7 +1869,7 @@ public class PdaScreen extends Screen {
         };
         String subLine = sub.getString();
         // Подгруженная история занимает память ретро-КПК (до выхода из чата).
-        if (mem != null && histBytes > 0) subLine += " · " + Component.translatable("rppda.mem.history_loaded", size(histBytes)).getString();
+        if (memOn() && histBytes > 0) subLine += " · " + Component.translatable("rppda.mem.history_loaded", size(histBytes)).getString();
         txt(g, fit(subLine, cw - 44 - toolW), cx + 42, cy + 10, Ui.DIM, false);
         g.fill(cx, cy + 19, cx + cw, cy + 20, Ui.SEP);
 
@@ -2287,25 +2292,28 @@ public class PdaScreen extends Screen {
     private void renderMemory(GuiGraphics g, int top) {
         if (mem == null) return;
         int mw = memW(), x = cx + cw - mw - 4, y = top + 2;
-        int used = mem.getInt("used"), cap = mem.getInt("cap");
-        boolean over = used > cap, admin = mem.getBoolean("admin");
-        txt(g, Component.translatable("rppda.mem.title"), x, y, Ui.DIM, false);
-        String amount = size(used) + " / " + size(cap) + (admin ? " ∞" : "");
-        int col = over && !admin ? Ui.RED : Ui.TEXT;
-        txt(g, amount, x + mw - tw(amount), y, col, false);
-        int bw = mw, by = y + 11;
-        g.renderOutline(x, by, bw, 6, Ui.DIM);
-        int fill = cap <= 0 ? bw - 2 : (int) Math.min(bw - 2, (long) (bw - 2) * used / cap);
-        boolean blink = over && !admin && (System.currentTimeMillis() / 400) % 2 == 0;
-        if (!blink) g.fill(x + 1, by + 1, x + 1 + fill, by + 5, over && !admin ? Ui.RED : Ui.TEXT);
-        // Из чего занято — столбиком: название слева, размер справа.
-        String[][] parts = {{"rppda.mem.contacts", "contacts"}, {"rppda.mem.avatar", "avatar"},
-                {"rppda.mem.notes", "notes"}, {"rppda.mem.history", "history"}};
-        for (int i = 0; i < parts.length; i++) {
-            int py = by + 10 + i * 10;
-            String v = size(mem.getInt(parts[i][1]));
-            txt(g, fit(Component.translatable(parts[i][0]).getString(), mw - tw(v) - 6), x, py, Ui.DIM, false);
-            txt(g, v, x + mw - tw(v), py, Ui.TEXT, false);
+        // Без реалистичных ретро-КПК объём не считается — только ячейки для плат (находка 107).
+        if (memOn()) {
+            int used = mem.getInt("used"), cap = mem.getInt("cap");
+            boolean over = used > cap, admin = mem.getBoolean("admin");
+            txt(g, Component.translatable("rppda.mem.title"), x, y, Ui.DIM, false);
+            String amount = size(used) + " / " + size(cap) + (admin ? " ∞" : "");
+            int col = over && !admin ? Ui.RED : Ui.TEXT;
+            txt(g, amount, x + mw - tw(amount), y, col, false);
+            int bw = mw, by = y + 11;
+            g.renderOutline(x, by, bw, 6, Ui.DIM);
+            int fill = cap <= 0 ? bw - 2 : (int) Math.min(bw - 2, (long) (bw - 2) * used / cap);
+            boolean blink = over && !admin && (System.currentTimeMillis() / 400) % 2 == 0;
+            if (!blink) g.fill(x + 1, by + 1, x + 1 + fill, by + 5, over && !admin ? Ui.RED : Ui.TEXT);
+            // Из чего занято — столбиком: название слева, размер справа.
+            String[][] parts = {{"rppda.mem.contacts", "contacts"}, {"rppda.mem.avatar", "avatar"},
+                    {"rppda.mem.notes", "notes"}, {"rppda.mem.history", "history"}};
+            for (int i = 0; i < parts.length; i++) {
+                int py = by + 10 + i * 10;
+                String v = size(mem.getInt(parts[i][1]));
+                txt(g, fit(Component.translatable(parts[i][0]).getString(), mw - tw(v) - 6), x, py, Ui.DIM, false);
+                txt(g, v, x + mw - tw(v), py, Ui.TEXT, false);
+            }
         }
         // Ячейки расширения: пусто — рамка; плата — её объём.
         txt(g, Component.translatable("rppda.mem.slots"), x, slotY(top) - 11, Ui.DIM, false);
@@ -3000,7 +3008,7 @@ public class PdaScreen extends Screen {
             boolean partial = n.getBoolean("partial");
             Ui.icon(gg, enc ? Icon.LOCK : Icon.NOTE, cx + 4, y + 3, 16, partial ? Ui.DIM : n.contains("from") ? Ui.GOLD : Ui.ACCENT);
             // Размер — рядом с названием (память ретро-КПК).
-            String sz = mem != null ? size(n.getInt("size")) : "";
+            String sz = memOn() ? size(n.getInt("size")) : "";
             if (!sz.isEmpty() && !(partial && hover)) txt(gg, sz, cx + cw - 4 - tw(sz), y + 2, Ui.DIM, false);
             txt(gg, fit(n.getString("title"), cw - 34 - (sz.isEmpty() ? 0 : tw(sz) + 6)), cx + 24, y + 2, partial ? Ui.DIM : Ui.TEXT, false);
             String sub;

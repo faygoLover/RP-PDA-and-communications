@@ -46,7 +46,13 @@ public final class Views {
             if (dev != null) {
                 t.put("look", dev.look.save());
                 // Память ретро-КПК (реалистичные ретро-КПК): занято, объём, ячейки расширения.
+                // Без реалистичных ретро-КПК платы в ячейки ставятся и снимаются, но пока ничего не дают (находка 107).
                 if (Memory.limited(dev)) t.put("mem", Memory.view(sp, dev, s));
+                else if (Memory.retro(dev) && dev.kind != faygolover.rppda.data.Account.Kind.SYSTEM) {
+                    CompoundTag m = Memory.view(sp, dev, s);
+                    m.putBoolean("slots_only", true);
+                    t.put("mem", m);
+                }
             }
         }
         // Заметками делятся приглашением с передачей рядом (у системного КПК — по-старому).
