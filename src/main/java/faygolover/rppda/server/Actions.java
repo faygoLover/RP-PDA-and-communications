@@ -214,6 +214,9 @@ public final class Actions {
                 Chat c = store.chat(d.getInt("chat"));
                 if (c == null) return;
                 String text = d.getString("text").strip();
+                // Речь игрока — через фильтры семейства (RP Psyche: заикание); Система (ГМ) — как есть.
+                if (!s.system && !text.isEmpty())
+                    text = faygolover.rpcore.api.RpCoreAPI.filterSpeech(sp, text, faygolover.rpcore.api.RpCoreAPI.SpeechChannel.MESSAGE);
                 String err = Messaging.check(me, c, text, s.system ? null : sp);
                 if (err != null) {
                     toast(sp, err, true);

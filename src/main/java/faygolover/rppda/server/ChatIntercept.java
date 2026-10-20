@@ -69,7 +69,8 @@ public final class ChatIntercept {
         if (text.startsWith("!")) kind = Speech.SHOUT;
         else if (text.startsWith("~")) kind = Speech.WHISPER;
         if (kind != Speech.NORMAL) text = text.substring(1).strip();
-        if (!text.isEmpty()) speak(sp, text, kind);
+        // Речь игрока — через фильтры семейства (RP Psyche: заикание).
+        if (!text.isEmpty()) speak(sp, RpCoreAPI.filterSpeech(sp, text, RpCoreAPI.SpeechChannel.VOICE_NEARBY), kind);
     }
 
     /** Старое поведение: обычный чат — в общий чат КПК (без КПК — речь рядом). */
@@ -80,6 +81,7 @@ public final class ChatIntercept {
             return;
         }
         Chat c = PdaServer.store.global();
+        text = RpCoreAPI.filterSpeech(sp, text, RpCoreAPI.SpeechChannel.MESSAGE);
         String err = Messaging.check(acc, c, text, sp);
         if (err != null) {
             sp.sendSystemMessage(Component.translatable(err).withStyle(ChatFormatting.RED));
@@ -296,6 +298,7 @@ public final class ChatIntercept {
             if (PdaConfig.tellRequiresDialog) return fail(src, "rppda.err.no_dialog");
             c = store.dm(from.id, to.id);
         }
+        text = RpCoreAPI.filterSpeech(sp, text, RpCoreAPI.SpeechChannel.MESSAGE);
         String err = Messaging.check(from, c, text, sp);
         if (err != null) return fail(src, err.equals("rppda.err.blocked_by") ? "rppda.err.not_delivered" : err);
         Messaging.post(c, from, text, 0, 0, null, null);
@@ -327,6 +330,7 @@ public final class ChatIntercept {
         if (to == null) return fail(src, "rppda.err.target_no_pda_name");
         if (to.id == from.id) return 0;
         Chat c = PdaServer.store.dm(from.id, to.id);
+        text = RpCoreAPI.filterSpeech(sp, text, RpCoreAPI.SpeechChannel.MESSAGE);
         String err = Messaging.check(from, c, text, sp);
         if (err != null) return fail(src, err);
         Messaging.post(c, from, text, 0, 0, null, null);
