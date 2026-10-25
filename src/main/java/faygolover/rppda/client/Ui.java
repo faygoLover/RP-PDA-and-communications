@@ -105,15 +105,14 @@ public final class Ui {
         BODY_DARK = system ? 0xFF601C18 : 0xFF847A66; SYSTEM_BODY = BODY;
     }
 
-    /** Ретро пишет заглавными. Метки сервера («#deleted», «#note:») — в слова. */
+    /** Ретро пишет заглавными. Метки сервера («#note:», «#file:») — в слова. */
     public static String up(String s) {
         s = human(s);
         return retro ? s.toUpperCase(java.util.Locale.ROOT) : s;
     }
 
-    /** Сервер шлёт метки без языка: удалённая учётка, заметка в превью чата. */
+    /** Сервер шлёт метки без языка: заметка и файл в превью чата. */
     public static String human(String s) {
-        if (s.contains("#deleted")) s = s.replace("#deleted", Component.translatable("rppda.account.deleted").getString());
         if (s.contains("#note:")) s = s.replace("#note:", Component.translatable("rppda.note.preview").getString());
         if (s.contains("#file:")) s = s.replace("#file:", Component.translatable("rppda.xfer.preview").getString());
         return s;

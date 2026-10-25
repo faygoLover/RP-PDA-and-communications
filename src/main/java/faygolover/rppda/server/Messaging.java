@@ -142,6 +142,22 @@ public final class Messaging {
         }
     }
 
+    /** Логин игрока, который пишет с учётки: у кого она сейчас активна (КПК в руках), иначе владелец. */
+    @Nullable
+    static String authorLogin(Account from) {
+        if (from.kind == Account.Kind.SYSTEM || PdaServer.server == null) return null;
+        for (var e : PdaServer.active.entrySet()) {
+            if (e.getValue() != from.id) continue;
+            ServerPlayer p = PdaServer.server.getPlayerList().getPlayer(e.getKey());
+            if (p != null) return p.getGameProfile().getName();
+        }
+        if (from.owner == null) return null;
+        ServerPlayer p = PdaServer.server.getPlayerList().getPlayer(from.owner);
+        if (p != null) return p.getGameProfile().getName();
+        var cache = PdaServer.server.getProfileCache();
+        return cache == null ? null : cache.get(from.owner).map(com.mojang.authlib.GameProfile::getName).orElse(null);
+    }
+
     /** Строка в чате игры. Подписи контактов — свои у каждого получателя. */
     static void sendLine(ServerPlayer sp, PdaStore store, @Nullable Account viewer, Chat c, Message m, Account from,
                          boolean admin, boolean plain) {
@@ -149,6 +165,11 @@ public final class Messaging {
         if (admin && m.gm != null)
             line.append(Component.translatable("rppda.chat.gm", m.gm).withStyle(ChatFormatting.DARK_RED)).append(" ");
         String name = Views.nameFor(store, viewer, from.id);
+        // Админ видит, кто из игроков пишет: «Учётка (логин)».
+        if (admin) {
+            String login = authorLogin(from);
+            if (login != null) name = name + " (" + login + ")";
+        }
         switch (c.type) {
             case DM -> {
                 line.append(Component.literal("✉ ").withStyle(ChatFormatting.AQUA));

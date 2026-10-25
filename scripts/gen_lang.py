@@ -149,6 +149,7 @@ L = {
     "rppda.chat.read_only": ("Только чтение", "Read only"),
     "rppda.chat.read_only_channel": ("Канал: пишет только админ", "Channel: only the admin posts"),
     "rppda.chat.no_pda": ("[без КПК]", "[no PDA]"),
+    "rppda.chat.no_signal_tag": ("[нет связи]", "[no signal]"),
     "rppda.chat.only_admins": ("[видят только админы]", "[only admins see this]"),
     "rppda.chat.admin": ("администрации", "the admins"),
     "rppda.notice.created": ("%s создаёт группу", "%s created the group"),

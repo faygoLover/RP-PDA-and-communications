@@ -218,22 +218,20 @@ public final class PdaGameTests {
     }
 
     @GameTest(template = T)
-    public static void noPdaTellToAdminIsKept(GameTestHelper h) {
+    public static void noPdaTellToAdminIsPlain(GameTestHelper h) {
         ServerPlayer admin = player(h, true), p = player(h);
         {
+            // Без КПК — обычной строкой админу: ни в КПК, ни в очередь до первого КПК (решение 26.10).
             cmd(p, "msg " + admin.getGameProfile().getName() + " помогите");
-            var q = store().pending.get(p.getUUID());
-            h.assertTrue(q != null && q.size() == 1, "без учётки сообщение админу отложено");
-            // Не админу — нельзя.
-            ServerPlayer other = player(h);
-            cmd(p, "msg " + other.getGameProfile().getName() + " эй");
-            h.assertTrue(store().pending.get(p.getUUID()).size() == 1, "не админу без КПК не уходит");
-            remove(h, other);
-            // Первый КПК — сообщение переезжает в диалог с Системой (у админа учётки нет).
+            h.assertTrue(!store().pending.containsKey(p.getUUID()), "без учётки сообщение админу не откладывается");
+            // Первый КПК — диалога с Системой нет.
             Account mine = register(h, p);
             Chat dm = store().findDm(mine.id, 0);
-            h.assertTrue(dm != null && messages(dm).get(0).text.equals("помогите"), "отложенное попало в первый КПК");
-            h.assertTrue(!store().pending.containsKey(p.getUUID()), "очередь очищена");
+            h.assertTrue(dm == null || messages(dm).isEmpty(), "в первый КПК ничего не переехало");
+            // С КПК и связью — строкой КПК, в диалог с Системой (у админа учётки нет).
+            cmd(p, "msg " + admin.getGameProfile().getName() + " теперь с КПК");
+            dm = store().findDm(mine.id, 0);
+            h.assertTrue(dm != null && messages(dm).get(messages(dm).size() - 1).text.equals("теперь с КПК"), "с КПК — в диалог");
         }
         remove(h, admin);
         remove(h, p);

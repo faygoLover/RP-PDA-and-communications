@@ -339,14 +339,14 @@ public final class ChatIntercept {
     }
 
     /**
-     * Игрок пишет админу — всегда, даже без КПК, без связи и без сознания. Есть учётка — в диалог с учёткой админа
-     * (или с Системой); нет — сообщение ждёт первого КПК игрока. Админ видит строку в чате.
+     * Игрок пишет админу — всегда, даже без КПК, без связи и без сознания. С КПК и связью — в диалог с учёткой админа
+     * (или с Системой), строкой КПК. Без связи, без КПК или без учётки — обычной строкой этому админу, в историю КПК
+     * не ложится (и не ждёт будущего КПК).
      */
     private static int toAdmin(ServerPlayer sp, ServerPlayer admin, String text) {
         PdaStore store = PdaServer.store;
         Account mine = active(sp);
-        if (mine == null) mine = PdaServer.accountFor(sp.getUUID());
-        if (mine != null) {
+        if (mine != null && PdaServer.signal(sp, mine)) {
             Account adminAcc = PdaServer.accountFor(admin.getUUID());
             Account to = adminAcc == null || adminAcc.id == mine.id ? store.system() : adminAcc;
             Chat c = store.dm(mine.id, to.id);
@@ -357,8 +357,8 @@ public final class ChatIntercept {
             }
             Messaging.post(c, mine, text, 0, 0, null, admin);
         } else {
-            store.addPending(sp.getUUID(), new PdaStore.Pending(admin.getUUID(), System.currentTimeMillis(), text), PdaConfig.pendingLimit);
-            admin.sendSystemMessage(Component.translatable("rppda.chat.no_pda").withStyle(ChatFormatting.DARK_GRAY).append(" ")
+            admin.sendSystemMessage(Component.translatable(mine != null ? "rppda.chat.no_signal_tag" : "rppda.chat.no_pda")
+                    .withStyle(ChatFormatting.DARK_GRAY).append(" ")
                     .append(Component.translatable("commands.message.display.incoming", sp.getDisplayName(), text)
                             .withStyle(ChatFormatting.GRAY, ChatFormatting.ITALIC)));
         }

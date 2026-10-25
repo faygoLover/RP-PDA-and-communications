@@ -141,6 +141,7 @@
   "rppda.chat.read_only": "Read only",
   "rppda.chat.read_only_channel": "Channel: only the admin posts",
   "rppda.chat.no_pda": "[no PDA]",
+  "rppda.chat.no_signal_tag": "[no signal]",
   "rppda.chat.only_admins": "[only admins see this]",
   "rppda.chat.admin": "the admins",
   "rppda.notice.created": "%s created the group",

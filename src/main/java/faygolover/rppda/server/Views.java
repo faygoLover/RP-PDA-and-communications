@@ -19,17 +19,18 @@ import java.util.List;
 public final class Views {
     private Views() {}
 
-    /** Имя учётки глазами {@code viewer}: его подпись контакта, иначе имя. */
-    /** Удалённая учётка — клиент подписывает «Удалённая учётка». */
-    public static final String DELETED = "#deleted";
+    /** Удалённая учётка (так её видно только в истории КПК: писать она больше не может). */
+    public static final String DELETED = "[DELETED USER]";
 
+    /** Имя учётки глазами {@code viewer}: его подпись контакта, иначе имя; удалённая — с пометкой. */
     public static String nameFor(PdaStore store, @Nullable Account viewer, int id) {
+        Account a = store.accountAny(id);
+        boolean deleted = a != null && a.deleted;
         if (viewer != null) {
             String label = viewer.contacts.get(id);
-            if (label != null && !label.isEmpty()) return label;
+            if (label != null && !label.isEmpty()) return deleted ? label + " [DELETED]" : label;
         }
-        Account a = store.accountAny(id);
-        return a == null ? "?" : a.deleted ? DELETED : a.name;
+        return a == null ? "?" : deleted ? DELETED : a.name;
     }
 
     static void sendState(ServerPlayer sp, PdaServer.Session s) {

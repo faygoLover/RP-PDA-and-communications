@@ -141,6 +141,7 @@
   "rppda.chat.read_only": "Только чтение",
   "rppda.chat.read_only_channel": "Канал: пишет только админ",
   "rppda.chat.no_pda": "[без КПК]",
+  "rppda.chat.no_signal_tag": "[нет связи]",
   "rppda.chat.only_admins": "[видят только админы]",
   "rppda.chat.admin": "администрации",
   "rppda.notice.created": "%s создаёт группу",
