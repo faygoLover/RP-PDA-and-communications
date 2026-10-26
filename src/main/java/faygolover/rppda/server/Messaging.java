@@ -75,6 +75,12 @@ public final class Messaging {
             store.markAccounts();
         }
         deliver(c, m, from, forceLine);
+        // Написал с КПК — для мода психики одиночество немного отступает (RP Core → RP Psyche).
+        if (gm == null && (flags & Message.NOTICE) == 0) {
+            ServerPlayer author = author(from);
+            if (author != null) net.minecraftforge.common.MinecraftForge.EVENT_BUS.post(
+                    new faygolover.rpcore.api.event.RpMoodEvent(author, faygolover.rpcore.api.event.RpMoodEvent.Kind.MESSAGE_SENT, 1.0));
+        }
         return m;
     }
 
@@ -142,15 +148,24 @@ public final class Messaging {
         }
     }
 
-    /** Логин игрока, который пишет с учётки: у кого она сейчас активна (КПК в руках), иначе владелец. */
+    /** Игрок в сети, у которого эта учётка сейчас активна (КПК в руках), или null. */
     @Nullable
-    static String authorLogin(Account from) {
+    static ServerPlayer author(Account from) {
         if (from.kind == Account.Kind.SYSTEM || PdaServer.server == null) return null;
         for (var e : PdaServer.active.entrySet()) {
             if (e.getValue() != from.id) continue;
             ServerPlayer p = PdaServer.server.getPlayerList().getPlayer(e.getKey());
-            if (p != null) return p.getGameProfile().getName();
+            if (p != null) return p;
         }
+        return null;
+    }
+
+    /** Логин игрока, который пишет с учётки: у кого она сейчас активна (КПК в руках), иначе владелец. */
+    @Nullable
+    static String authorLogin(Account from) {
+        if (from.kind == Account.Kind.SYSTEM || PdaServer.server == null) return null;
+        ServerPlayer a = author(from);
+        if (a != null) return a.getGameProfile().getName();
         if (from.owner == null) return null;
         ServerPlayer p = PdaServer.server.getPlayerList().getPlayer(from.owner);
         if (p != null) return p.getGameProfile().getName();
