@@ -27,6 +27,7 @@ public final class PdaConfig {
     private static final ForgeConfigSpec.IntValue LOCKOUT_SECONDS;
     private static final ForgeConfigSpec.DoubleValue SOUND_VOLUME;
     private static final ForgeConfigSpec.ConfigValue<String> STYLE;
+    private static final ForgeConfigSpec.BooleanValue RP_TIME;
     private static final ForgeConfigSpec.IntValue HACK_ATTEMPTS;
     private static final ForgeConfigSpec.IntValue DECRYPTOR_CHARGES;
     private static final ForgeConfigSpec.IntValue DECRYPTOR_COOLDOWN;
@@ -62,6 +63,8 @@ public final class PdaConfig {
     public static double soundVolume = 0.7;
     /** Вид КПК, которому при выдаче не задан свой: "retro" или "modern". */
     public static String style = "retro";
+    /** Время в КПК — RP (часы мира, номер дня RP) или реальное. */
+    public static boolean rpTime = true;
     public static int hackAttempts = 4;
     public static int decryptorCharges = 4;
     public static int decryptorCooldown = 10;
@@ -117,6 +120,11 @@ public final class PdaConfig {
         STYLE = b.comment("Вид КПК, которому ГМ при выдаче не задал свой: retro — 80-е (корпус с клавишами, люминофор),",
                         "modern — современный. PDA look for devices without their own: retro or modern.")
                 .define("pda_style", "retro", v -> v instanceof String s && (s.equals("retro") || s.equals("modern")));
+        RP_TIME = b.comment("Время в КПК: true — RP-время (часы мира, как у RP Time; дата — день RP), false — реальное время.",
+                        "Переключает вместе часы КПК и время сообщений, заметок, журнала. Сообщения хранят реальный момент —",
+                        "переключать можно когда угодно, старые покажутся по-новому.",
+                        "PDA time: true — RP time (world clock, RP day number), false — real time.")
+                .define("rp_time", true);
         b.pop();
         b.push("devices");
         CHECK_TICKS = b.comment("Как часто (тики) искать активный КПК игрока и проверять, не ушёл ли разблокированный КПК с паролем.")
@@ -187,6 +195,7 @@ public final class PdaConfig {
         lockoutSeconds = LOCKOUT_SECONDS.get();
         soundVolume = SOUND_VOLUME.get();
         style = STYLE.get();
+        rpTime = RP_TIME.get();
         hackAttempts = HACK_ATTEMPTS.get();
         decryptorCharges = DECRYPTOR_CHARGES.get();
         decryptorCooldown = DECRYPTOR_COOLDOWN.get();

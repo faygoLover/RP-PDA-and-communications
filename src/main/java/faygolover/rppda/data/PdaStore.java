@@ -63,6 +63,8 @@ public final class PdaStore {
     public final Map<UUID, Long> noSignalPlayers = new HashMap<>();
     /** Админы в «режиме персонажа»: мод считает их обычными игроками. */
     public final Set<UUID> characterMode = new HashSet<>();
+    /** RP-время на реальный момент (находка 56): опорные точки часов мира. */
+    public final faygolover.rppda.util.RpClock clock = new faygolover.rppda.util.RpClock();
     private int nextChatId = 2;
 
     private boolean accountsDirty, chatsDirty, miscDirty;
@@ -113,6 +115,7 @@ public final class PdaStore {
             CompoundTag ns = m.getCompound("noSignal");
             for (String k : ns.getAllKeys()) noSignalPlayers.put(UUID.fromString(k), ns.getLong(k));
             for (Tag t : m.getList("character", Tag.TAG_STRING)) characterMode.add(UUID.fromString(t.getAsString()));
+            clock.load(m.getLongArray("rpclock"));
         }
         system();
         global();
@@ -170,6 +173,7 @@ public final class PdaStore {
             ListTag ch = new ListTag();
             for (UUID u : characterMode) ch.add(net.minecraft.nbt.StringTag.valueOf(u.toString()));
             t.put("character", ch);
+            t.putLongArray("rpclock", clock.points());
             if (write(root.resolve("misc.dat"), t)) miscDirty = false;
         }
         for (ChatLog cl : logs.values()) if (cl.dirty) saveLog(cl);

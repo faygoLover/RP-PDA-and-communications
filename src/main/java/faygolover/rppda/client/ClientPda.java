@@ -29,6 +29,7 @@ public final class ClientPda {
                 if (c != null) mc.gui.getChat().addMessage(c, null, TAG);
             }
             case "avatars" -> Avatars.receive(d);
+            case "rpclock" -> ClientTime.receive(d);
             case "xfer" -> {
                 Xfers.receive(d);
                 if (mc.screen instanceof PdaScreen p) p.receive(op, d);
@@ -63,5 +64,6 @@ public final class ClientPda {
         AvatarPics.clear();
         Duotone.clear();
         Xfers.reset();
+        ClientTime.reset();
     }
 }

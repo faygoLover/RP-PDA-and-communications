@@ -2,6 +2,7 @@ package faygolover.rppda.client;
 
 import com.mojang.blaze3d.systems.RenderSystem;
 import faygolover.rppda.RpPda;
+import faygolover.rppda.util.RpClock;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -325,8 +326,16 @@ public final class Ui {
         return ((int) ((r + m) * 255) << 16) | ((int) ((gg + m) * 255) << 8) | (int) ((b + m) * 255);
     }
 
+    // Время КПК (находка 56): моменты — реальные мс по часам сервера; в RP-режиме показываются RP-часы мира на тот
+    // момент и номер дня RP ({@link ClientTime}), иначе — реальное время.
+
+    /** В списках: сегодня — «14:05», раньше — дата. */
     public static String time(long ms) {
         if (ms <= 0) return "";
+        if (ClientTime.rp()) {
+            long t = ClientTime.ticksAt(ms);
+            return RpClock.day(t) == RpClock.day(ClientTime.nowTicks()) ? RpClock.clock(t) : dayShort(t);
+        }
         Calendar now = Calendar.getInstance(), then = Calendar.getInstance();
         then.setTimeInMillis(ms);
         boolean today = now.get(Calendar.YEAR) == then.get(Calendar.YEAR) && now.get(Calendar.DAY_OF_YEAR) == then.get(Calendar.DAY_OF_YEAR);
@@ -334,11 +343,32 @@ public final class Ui {
     }
 
     public static String clock(long ms) {
+        if (ClientTime.rp()) return RpClock.clock(ClientTime.ticksAt(ms));
         return new SimpleDateFormat("HH:mm").format(new Date(ms));
     }
 
+    /** Часы в строке состояния: свои часы игрока или RP-часы мира. */
+    public static String clockNow() {
+        if (ClientTime.rp()) return RpClock.clock(ClientTime.nowTicks());
+        return clock(System.currentTimeMillis());
+    }
+
     public static String day(long ms) {
+        if (ClientTime.rp()) return Component.translatable("rppda.time.day", RpClock.day(ClientTime.ticksAt(ms))).getString();
         return new SimpleDateFormat("dd.MM.yyyy").format(new Date(ms));
+    }
+
+    /** Дата и время одной строкой (журнал ГМ). */
+    public static String stamp(long ms) {
+        if (ClientTime.rp()) {
+            long t = ClientTime.ticksAt(ms);
+            return dayShort(t) + " " + RpClock.clock(t);
+        }
+        return new SimpleDateFormat("dd.MM HH:mm").format(new Date(ms));
+    }
+
+    private static String dayShort(long ticks) {
+        return Component.translatable("rppda.time.day_short", RpClock.day(ticks)).getString();
     }
 
     public static String formatId(int id) {

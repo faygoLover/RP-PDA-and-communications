@@ -1576,7 +1576,7 @@ public class PdaScreen extends Screen {
         if (retro) {
             // Инверсная строка, как на терминале.
             g.fill(sx, sy, sx + sw, sy + 11, Ui.BAR);
-            String clock = Ui.clock(System.currentTimeMillis());
+            String clock = Ui.clockNow();
             g.drawString(font, clock, sx + sw - font.width(clock) - 3, sy + 2, Ui.SCREEN, false);
             String left = system ? Ui.up(Component.translatable("rppda.screen.system").getString())
                     + (meId != 0 ? "  → " + Ui.up(meName) + " " + Ui.formatId(meId) : "")
@@ -1592,7 +1592,7 @@ public class PdaScreen extends Screen {
             return;
         }
         g.fill(sx, sy, sx + sw, sy + 12, Ui.BAR);
-        String clock = Ui.clock(System.currentTimeMillis());
+        String clock = Ui.clockNow();
         txt(g, clock, sx + sw - tw(clock) - 4, sy + 2, Ui.DIM, false);
         int x = sx + 4;
         if (system) {
@@ -2444,7 +2444,7 @@ public class PdaScreen extends Screen {
     private void renderSysLog(GuiGraphics g) {
         title(g, Component.translatable("rppda.page.log"), 4);
         list(g, 0, 0, sysLog, 11, "log", (gg, e, y, hover) -> {
-            String when = new java.text.SimpleDateFormat("dd.MM HH:mm").format(new java.util.Date(e.getLong("time")));
+            String when = Ui.stamp(e.getLong("time"));
             String line = when + "  " + e.getString("gm") + "  "
                     + Component.translatable("rppda.log." + e.getString("action")).getString() + "  " + e.getString("target");
             txt(gg, fit(line, cw - 8), cx + 4, y + 1, Ui.DIM, false);
@@ -3100,7 +3100,7 @@ public class PdaScreen extends Screen {
         String line1 = Component.translatable("rppda.xfer.card", title, size(m.getInt("fsz"))).getString();
         if ((m.getInt("fl") & 16) != 0) line1 += " · " + Component.translatable("rppda.xfer.encrypted").getString();
         long exp = m.getLong("fexp");
-        String line2 = exp > System.currentTimeMillis() ? Component.translatable("rppda.xfer.open_until", Ui.clock(exp)).getString()
+        String line2 = exp > System.currentTimeMillis() ? Component.translatable("rppda.xfer.open_until", Ui.clock(ClientTime.toServer(exp))).getString()
                 : Component.translatable("rppda.xfer.closed").getString();
         return line1 + "\n" + line2;
     }

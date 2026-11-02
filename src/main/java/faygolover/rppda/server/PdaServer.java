@@ -62,6 +62,9 @@ public final class PdaServer {
     static final Map<UUID, Long> lockoutUntil = new HashMap<>();
     static ExecutorService io;
     private static long ticks;
+    // RP-время в КПК (находка 56): новая точка или смена режима — разослать таблицу (не чаще раза в 5 с).
+    private static boolean clockChanged, clockMode;
+    private static long clockSentAt;
 
     /** Открытое окно КПК. */
     public static final class Session {
@@ -108,6 +111,8 @@ public final class PdaServer {
         server = e.getServer();
         store = new PdaStore(server.getWorldPath(LevelResource.ROOT).resolve("rppda"), RpPda.LOGGER);
         store.load();
+        store.clock.sample(System.currentTimeMillis(), server.overworld().getDayTime());
+        clockMode = PdaConfig.rpTime;
         // После перезапуска никто не держит КПК — все с паролем заблокированы.
         for (Account a : store.accounts.values()) {
             if (a.hasPassword() && !a.locked) {
@@ -125,6 +130,7 @@ public final class PdaServer {
     private static void onStopping(ServerStoppingEvent e) {
         if (store != null) {
             for (Integer acc : new ArrayList<>(holders.keySet())) lock(acc);
+            store.markMisc(); // последнее показание часов — до следующего запуска
             store.archiveOld();
             store.save();
         }
@@ -162,6 +168,7 @@ public final class PdaServer {
         if (ticks % 20 == 0) {
             Nearby.tick();
             Transfers.tick();
+            sampleClock();
         }
         if (ticks % (PdaConfig.archiveMinutes * 1200L) == 0) {
             int moved = store.archiveOld();
@@ -176,7 +183,33 @@ public final class PdaServer {
             refreshNames(sp);
             scan(sp);
             Messaging.sendUnread(sp);
+            sendClock(sp);
         }
+    }
+
+    private static void sampleClock() {
+        if (store.clock.sample(System.currentTimeMillis(), server.overworld().getDayTime())) {
+            clockChanged = true;
+            store.markMisc();
+        }
+        if (clockMode != PdaConfig.rpTime) {
+            clockMode = PdaConfig.rpTime;
+            clockChanged = true;
+        }
+        if (clockChanged && ticks - clockSentAt >= 100) {
+            clockChanged = false;
+            clockSentAt = ticks;
+            for (ServerPlayer sp : server.getPlayerList().getPlayers()) sendClock(sp);
+        }
+    }
+
+    /** Режим времени КПК и таблица RP-часов (без RP-режима — без таблицы). {@code now} — для сдвига часов клиента. */
+    static void sendClock(ServerPlayer sp) {
+        CompoundTag t = new CompoundTag();
+        t.putBoolean("rp", PdaConfig.rpTime);
+        t.putLong("now", System.currentTimeMillis());
+        if (PdaConfig.rpTime) t.putLongArray("p", store.clock.points());
+        Net.send(sp, "rpclock", t);
     }
 
     private static void onLogout(PlayerEvent.PlayerLoggedOutEvent e) {
