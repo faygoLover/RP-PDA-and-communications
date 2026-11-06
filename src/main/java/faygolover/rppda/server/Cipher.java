@@ -45,6 +45,8 @@ public final class Cipher {
         final List<Integer> parts = new ArrayList<>();
         long started;
         int charges;
+        /** Секунд на матрицу: у «Взлома» больше. */
+        int seconds = PdaConfig.cipherSeconds;
     }
 
     // ---------------------------------------------------------------- кто читает
@@ -111,6 +113,10 @@ public final class Cipher {
         Note n = note(me, id);
         if (n == null || n.cipher || n.from != null || n.text.isBlank()) return;
         if (!readable(sp, me, n)) return;
+        if (Illiterate.technophobe(sp)) {
+            PdaServer.actionbar(sp, "rppda.cipher.technophobe");
+            return;
+        }
         ItemStack d = decryptor(sp);
         if (d == null) return;
         int left = DecryptorItem.use(d, System.currentTimeMillis());
@@ -130,9 +136,14 @@ public final class Cipher {
     static void start(ServerPlayer sp, PdaStore store, Account me, int id) {
         Note n = note(me, id);
         if (n == null || n.partial || readable(sp, me, n)) return;
+        if (Illiterate.technophobe(sp)) {
+            PdaServer.actionbar(sp, "rppda.cipher.technophobe");
+            return;
+        }
         ItemStack d = decryptor(sp);
         if (d == null) return;
         Game g = generate(n, new Random());
+        if (Illiterate.hacker(sp)) g.seconds += PdaConfig.hackerCipherSeconds;
         g.acc = me.id;
         g.note = n.id;
         g.charges = DecryptorItem.use(d, System.currentTimeMillis());
@@ -214,7 +225,7 @@ public final class Cipher {
             return;
         }
         long now = System.currentTimeMillis();
-        boolean timeUp = g.started > 0 && now - g.started > PdaConfig.cipherSeconds * 1000L + 1500;
+        boolean timeUp = g.started > 0 && now - g.started > g.seconds * 1000L + 1500;
         switch (op) {
             case "cipher.pick" -> {
                 if (timeUp) {
@@ -253,7 +264,7 @@ public final class Cipher {
                 if (opened) Actions.sendNotes(sp, me);
             }
             case "cipher.timeout" -> {
-                if (g.started > 0 && now - g.started >= PdaConfig.cipherSeconds * 1000L - 1500) finish(sp, store, me, g, n);
+                if (g.started > 0 && now - g.started >= g.seconds * 1000L - 1500) finish(sp, store, me, g, n);
             }
             case "cipher.quit" -> finish(sp, store, me, g, n);
             default -> {}
@@ -308,7 +319,7 @@ public final class Cipher {
         }
         t.put("seqs", seqs);
         t.putInt("buffer", BUFFER);
-        t.putInt("seconds", PdaConfig.cipherSeconds);
+        t.putInt("seconds", g.seconds);
         t.putLong("elapsed", g.started == 0 ? -1 : System.currentTimeMillis() - g.started);
         t.putInt("charges", g.charges);
         return t;

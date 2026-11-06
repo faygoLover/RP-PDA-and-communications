@@ -455,5 +455,7 @@
   "rppda.note.cant_open_dl": "Still downloading",
   "rppda.mem.ok": "OK",
   "rppda.size.point": ".",
-  "rppda.avatar.file_wait": "can change in %s s"
+  "rppda.avatar.file_wait": "can change in %s s",
+  "rppda.hack.technophobe": "You have no idea what to do here - better not touch anything",
+  "rppda.cipher.technophobe": "Ciphers are not your thing: afraid to break something"
 }

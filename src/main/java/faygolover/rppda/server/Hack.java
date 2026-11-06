@@ -97,6 +97,13 @@ public final class Hack {
             case LOCKED -> {}
         }
         if (a == null || !(sp.getItemInHand(pickHand).getItem() instanceof LockpickItem)) return;
+        if (Illiterate.technophobe(sp)) {
+            PdaServer.actionbar(sp, "rppda.hack.technophobe");
+            return;
+        }
+        // «Взлом»: у новой (ещё не тронутой) отмычки попыток больше.
+        ItemStack pick0 = sp.getItemInHand(pickHand);
+        if (Illiterate.hacker(sp) && !LockpickItem.started(pick0)) LockpickItem.setLeft(pick0, PdaConfig.hackAttempts + PdaConfig.hackerAttempts);
 
         Game g = generate(a, new Random());
         g.acc = a.id;
@@ -302,7 +309,7 @@ public final class Hack {
         g.grid[close] = '.';
         List<Integer> duds = new ArrayList<>();
         for (var e : g.words.entrySet()) if (!e.getValue().equals(g.answer) && !g.removed.contains(e.getKey())) duds.add(e.getKey());
-        boolean canRestore = !LockpickItem.restored(pick) && LockpickItem.left(pick) < PdaConfig.hackAttempts;
+        boolean canRestore = !LockpickItem.restored(pick) && LockpickItem.left(pick) < total(sp);
         if (canRestore && (duds.isEmpty() || g.rnd.nextInt(4) == 0)) {
             LockpickItem.setRestored(pick);
             LockpickItem.setLeft(pick, LockpickItem.left(pick) + 1);
@@ -358,12 +365,17 @@ public final class Hack {
         while (g.log.size() > 40) g.log.remove(0);
     }
 
+    /** Всего попыток у отмычки в руках этого игрока («Взлом» — больше). */
+    private static int total(ServerPlayer sp) {
+        return PdaConfig.hackAttempts + (Illiterate.hacker(sp) ? PdaConfig.hackerAttempts : 0);
+    }
+
     static CompoundTag state(Game g, ServerPlayer sp) {
         CompoundTag t = new CompoundTag();
         t.putString("grid", new String(g.grid));
         ItemStack pick = sp.getItemInHand(g.pickHand);
         t.putInt("left", pick.getItem() instanceof LockpickItem ? LockpickItem.left(pick) : 0);
-        t.putInt("total", PdaConfig.hackAttempts);
+        t.putInt("total", Math.max(total(sp), t.getInt("left")));
         t.putInt("len", g.answer.length());
         t.put("log", g.log.copy());
         return t;

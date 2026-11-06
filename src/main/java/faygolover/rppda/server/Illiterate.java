@@ -33,6 +33,20 @@ public final class Illiterate {
         return sp != null && RpCoreAPI.hasTrait(sp, RpIds.ILLITERATE);
     }
 
+    // Взлом и Технофоб (RP Perks 2.8.1): черт ещё нет константами в Core 0.12 — по имени.
+    private static final net.minecraft.resources.ResourceLocation HACKER = new net.minecraft.resources.ResourceLocation("rpcore", "hacker"),
+            TECHNOPHOBE = new net.minecraft.resources.ResourceLocation("rpcore", "technophobe");
+
+    /** «Взлом»: лишняя попытка отмычки, больше времени на расшифровку. */
+    static boolean hacker(ServerPlayer sp) {
+        return RpCoreAPI.hasTrait(sp, HACKER);
+    }
+
+    /** «Технофоб»: не взламывает КПК, не шифрует и не расшифровывает заметки. */
+    static boolean technophobe(ServerPlayer sp) {
+        return RpCoreAPI.hasTrait(sp, TECHNOPHOBE);
+    }
+
     static boolean is(PdaServer.Session s) {
         return !s.system && is(reader(s));
     }

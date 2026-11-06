@@ -32,6 +32,7 @@ public final class PdaConfig {
     private static final ForgeConfigSpec.IntValue DECRYPTOR_CHARGES;
     private static final ForgeConfigSpec.IntValue DECRYPTOR_COOLDOWN;
     private static final ForgeConfigSpec.IntValue CIPHER_SECONDS;
+    private static final ForgeConfigSpec.IntValue HACKER_ATTEMPTS, HACKER_CIPHER_SECONDS;
     private static final ForgeConfigSpec.IntValue EXCHANGE_RADIUS;
     private static final ForgeConfigSpec.IntValue AVATAR_UPLOAD_SECONDS;
     private static final ForgeConfigSpec.BooleanValue REALISTIC_RETRO;
@@ -69,6 +70,8 @@ public final class PdaConfig {
     public static int decryptorCharges = 4;
     public static int decryptorCooldown = 10;
     public static int cipherSeconds = 60;
+    public static int hackerAttempts = 1;
+    public static int hackerCipherSeconds = 20;
     public static int exchangeRadius = 5;
     public static int avatarUploadSeconds = 30;
     /** Реалистичные ретро-КПК: память в байтах, заметки — только приглашением с медленной передачей рядом. */
@@ -147,6 +150,10 @@ public final class PdaConfig {
                 .defineInRange("decryptor_cooldown_minutes", 10, 0, 1440);
         CIPHER_SECONDS = b.comment("Расшифровка заметки: секунд на матрицу (отсчёт с первого выбора).")
                 .defineInRange("decrypt_seconds", 60, 10, 600);
+        HACKER_ATTEMPTS = b.comment("Особенность «Взлом» (RP Perks): столько попыток сверх обычных у новой отмычки.")
+                .defineInRange("hacker_extra_attempts", 1, 0, 10);
+        HACKER_CIPHER_SECONDS = b.comment("Особенность «Взлом»: столько секунд сверх обычных на расшифровку заметки.")
+                .defineInRange("hacker_extra_decrypt_seconds", 20, 0, 600);
         b.pop();
         b.push("retro_memory");
         REALISTIC_RETRO = b.comment("Реалистичные ретро-КПК: у ретро-КПК своя маленькая память (контакты, аватарка, заметки, подгруженная",
@@ -200,6 +207,8 @@ public final class PdaConfig {
         decryptorCharges = DECRYPTOR_CHARGES.get();
         decryptorCooldown = DECRYPTOR_COOLDOWN.get();
         cipherSeconds = CIPHER_SECONDS.get();
+        hackerAttempts = HACKER_ATTEMPTS.get();
+        hackerCipherSeconds = HACKER_CIPHER_SECONDS.get();
         exchangeRadius = EXCHANGE_RADIUS.get();
         avatarUploadSeconds = AVATAR_UPLOAD_SECONDS.get();
         realisticRetro = REALISTIC_RETRO.get();

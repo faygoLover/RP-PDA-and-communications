@@ -455,5 +455,7 @@
   "rppda.note.cant_open_dl": "Файл ещё качается",
   "rppda.mem.ok": "ОК",
   "rppda.size.point": ",",
-  "rppda.avatar.file_wait": "сменить можно через %s с"
+  "rppda.avatar.file_wait": "сменить можно через %s с",
+  "rppda.hack.technophobe": "Вы не понимаете, что тут делать — лучше ничего не трогать",
+  "rppda.cipher.technophobe": "Шифры — не ваше: боитесь что-нибудь сломать"
 }

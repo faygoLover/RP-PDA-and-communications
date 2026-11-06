@@ -33,6 +33,12 @@ public class LockpickItem extends Item {
         return t != null && t.getCompound(PdaItem.TAG).contains("left") ? t.getCompound(PdaItem.TAG).getInt("left") : PdaConfig.hackAttempts;
     }
 
+    /** Отмычкой уже взламывали (попытки записаны в неё). */
+    public static boolean started(ItemStack s) {
+        CompoundTag t = s.getTag();
+        return t != null && t.getCompound(PdaItem.TAG).contains("left");
+    }
+
     public static void setLeft(ItemStack s, int left) {
         s.getOrCreateTagElement(PdaItem.TAG).putInt("left", left);
     }
