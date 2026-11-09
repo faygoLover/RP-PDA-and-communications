@@ -23,6 +23,58 @@ class PdaStoreTest {
     }
 
     @Test
+    void brokenAccountsAreKeptAndRestoredFromBackup() throws Exception {
+        PdaStore s = fresh();
+        Account a = s.createAccount(Account.Kind.PLAYER, "Док", UUID.randomUUID());
+        s.save();
+        s.markAccounts();
+        s.save();
+        Files.write(dir.resolve("accounts.dat"), new byte[]{1, 2, 3});
+
+        PdaStore r = fresh();
+        assertNotNull(r.account(a.id), "учётка из резервной копии");
+        assertTrue(Files.isRegularFile(dir.resolve("accounts.dat")), "файл восстановлен");
+        try (var files = Files.list(dir)) {
+            assertTrue(files.anyMatch(f -> f.getFileName().toString().startsWith("accounts.dat.corrupt-")), "битый файл отложен");
+        }
+    }
+
+    @Test
+    void truncatedChatListDoesNotStopLoadingOrReuseIds() throws Exception {
+        PdaStore s = fresh();
+        Account a = s.createAccount(Account.Kind.PLAYER, "Док", UUID.randomUUID());
+        Account b = s.createAccount(Account.Kind.NPC, "Барыга", null);
+        Chat dm = s.dm(a.id, b.id);
+        s.append(dm, a.id, "привет", 0, 0, null, 1000);
+        s.save();
+        byte[] whole = Files.readAllBytes(dir.resolve("chats.dat"));
+        Files.write(dir.resolve("chats.dat"), java.util.Arrays.copyOf(whole, whole.length / 2));
+
+        PdaStore r = fresh();
+        Chat other = r.dm(a.id, 12345678);
+        assertTrue(other.id > dm.id, "новый чат не берёт номер старого");
+    }
+
+    @Test
+    void brokenChatLogIsNotOverwritten() throws Exception {
+        PdaStore s = fresh();
+        Account a = s.createAccount(Account.Kind.PLAYER, "Док", UUID.randomUUID());
+        Account b = s.createAccount(Account.Kind.NPC, "Барыга", null);
+        Chat dm = s.dm(a.id, b.id);
+        s.append(dm, a.id, "привет", 0, 0, null, 1000);
+        s.save();
+        Path log = dir.resolve("chats").resolve(dm.id + ".dat");
+        Files.write(log, new byte[]{1, 2, 3});
+
+        PdaStore r = fresh();
+        r.append(r.chat(dm.id), a.id, "новое", 0, 0, null, 2000);
+        r.save();
+        try (var files = Files.list(dir.resolve("chats"))) {
+            assertTrue(files.anyMatch(f -> f.getFileName().toString().startsWith(dm.id + ".dat.corrupt-")), "битая переписка отложена");
+        }
+    }
+
+    @Test
     void accountsAndChatsSurviveRestart() {
         PdaStore s = fresh();
         UUID owner = UUID.randomUUID();

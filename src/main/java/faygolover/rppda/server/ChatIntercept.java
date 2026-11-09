@@ -55,8 +55,15 @@ public final class ChatIntercept {
         if (PdaServer.store == null || e.isCanceled()) return;
         e.setCanceled(true);
         ServerPlayer sp = e.getPlayer();
-        String text = e.getRawText().strip();
-        if (text.isEmpty()) return;
+        String raw = e.getRawText().strip();
+        if (raw.isEmpty()) return;
+        // Forge зовёт событие не из потока сервера, а речь читает игроков и пишет в данные КПК.
+        sp.server.execute(() -> {
+            if (PdaServer.store != null) chat(sp, raw);
+        });
+    }
+
+    private static void chat(ServerPlayer sp, String text) {
         if (RpCoreAPI.unconscious(sp)) {
             sp.sendSystemMessage(Component.translatable("rppda.err.unconscious").withStyle(ChatFormatting.RED));
             return;

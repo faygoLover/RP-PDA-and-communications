@@ -81,12 +81,12 @@ public final class PdaStore {
     // ---------------------------------------------------------------- загрузка и сохранение
 
     public void load() {
-        CompoundTag a = read(root.resolve("accounts.dat"));
+        CompoundTag a = readOwned(root.resolve("accounts.dat"), true);
         if (a != null) for (Tag t : a.getList("accounts", Tag.TAG_COMPOUND)) {
             Account acc = Account.load((CompoundTag) t);
             accounts.put(acc.id, acc);
         }
-        CompoundTag c = read(root.resolve("chats.dat"));
+        CompoundTag c = readOwned(root.resolve("chats.dat"), true);
         if (c != null) {
             nextChatId = Math.max(2, c.getInt("next"));
             for (Tag t : c.getList("chats", Tag.TAG_COMPOUND)) {
@@ -95,7 +95,9 @@ public final class PdaStore {
                 nextChatId = Math.max(nextChatId, chat.id + 1);
             }
         }
-        CompoundTag m = read(root.resolve("misc.dat"));
+        // Список чатов мог пропасть: новый чат не должен взять номер старого и его переписку.
+        nextChatId = Math.max(nextChatId, maxChatOnDisk() + 1);
+        CompoundTag m = readOwned(root.resolve("misc.dat"), true);
         if (m != null) {
             CompoundTag p = m.getCompound("pending");
             for (String k : p.getAllKeys()) {
@@ -129,7 +131,7 @@ public final class PdaStore {
             for (Account acc : accounts.values()) l.add(acc.save());
             CompoundTag t = new CompoundTag();
             t.put("accounts", l);
-            if (write(root.resolve("accounts.dat"), t)) accountsDirty = false;
+            if (write(root.resolve("accounts.dat"), t, true)) accountsDirty = false;
         }
         if (chatsDirty) {
             ListTag l = new ListTag();
@@ -137,7 +139,7 @@ public final class PdaStore {
             CompoundTag t = new CompoundTag();
             t.putInt("next", nextChatId);
             t.put("chats", l);
-            if (write(root.resolve("chats.dat"), t)) chatsDirty = false;
+            if (write(root.resolve("chats.dat"), t, true)) chatsDirty = false;
         }
         if (miscDirty) {
             CompoundTag t = new CompoundTag();
@@ -174,7 +176,7 @@ public final class PdaStore {
             for (UUID u : characterMode) ch.add(net.minecraft.nbt.StringTag.valueOf(u.toString()));
             t.put("character", ch);
             t.putLongArray("rpclock", clock.points());
-            if (write(root.resolve("misc.dat"), t)) miscDirty = false;
+            if (write(root.resolve("misc.dat"), t, true)) miscDirty = false;
         }
         for (ChatLog cl : logs.values()) if (cl.dirty) saveLog(cl);
     }
@@ -196,26 +198,79 @@ public final class PdaStore {
         for (Message m : cl.messages) l.add(m.save());
         CompoundTag t = new CompoundTag();
         t.put("messages", l);
-        if (write(root.resolve("chats").resolve(cl.chatId + ".dat"), t)) cl.dirty = false;
+        if (write(root.resolve("chats").resolve(cl.chatId + ".dat"), t, false)) cl.dirty = false;
     }
 
+    /** Только чтение (архив): файл потом не перезаписывается. */
     @Nullable
     private CompoundTag read(Path p) {
         File f = p.toFile();
         if (!f.isFile()) return null;
         try {
             return NbtIo.readCompressed(f);
-        } catch (IOException e) {
+        } catch (IOException | RuntimeException e) {
             log.error("RP PDA: не прочитать {}: {}", p, e.toString());
             return null;
         }
     }
 
-    private boolean write(Path p, CompoundTag t) {
+    /**
+     * Чтение файла, который потом перезапишется: битый откладывается рядом ({@code .corrupt-<время>}), иначе первое же
+     * сохранение затёрло бы его пустыми данными. С {@code backup} вместо него берётся копия {@code .bak}.
+     */
+    @Nullable
+    private CompoundTag readOwned(Path p, boolean backup) {
+        File f = p.toFile();
+        if (!f.isFile()) return null;
+        try {
+            return NbtIo.readCompressed(f);
+        } catch (IOException | RuntimeException e) {
+            log.error("RP PDA: файл повреждён {}: {}", p, e.toString());
+        }
+        try {
+            Path kept = p.resolveSibling(p.getFileName() + ".corrupt-" + System.currentTimeMillis());
+            Files.move(p, kept);
+            log.error("RP PDA: повреждённый файл отложен: {}", kept);
+            Path bak = bakOf(p);
+            if (!backup || !Files.isRegularFile(bak)) return null;
+            CompoundTag t = NbtIo.readCompressed(bak.toFile());
+            Files.copy(bak, p);
+            log.warn("RP PDA: {} восстановлен из резервной копии", p);
+            return t;
+        } catch (IOException | RuntimeException e) {
+            log.error("RP PDA: не восстановить {}: {}", p, e.toString());
+            return null;
+        }
+    }
+
+    private static Path bakOf(Path p) {
+        return p.resolveSibling(p.getFileName() + ".bak");
+    }
+
+    /** Наибольший номер чата среди файлов переписки и архива. */
+    private int maxChatOnDisk() {
+        int max = 0;
+        for (Path dir : List.of(root.resolve("chats"), root.resolve("archive"))) {
+            if (!Files.isDirectory(dir)) continue;
+            try (var files = Files.list(dir)) {
+                for (Path f : files.toList()) {
+                    String n = f.getFileName().toString().replaceFirst("\\.dat$", "");
+                    if (n.matches("\\d{1,9}")) max = Math.max(max, Integer.parseInt(n));
+                }
+            } catch (IOException e) {
+                log.warn("RP PDA: не прочитать папку {}: {}", dir, e.toString());
+            }
+        }
+        return max;
+    }
+
+    /** С {@code backup} прошлая версия файла остаётся копией {@code .bak}. */
+    private boolean write(Path p, CompoundTag t, boolean backup) {
         try {
             Files.createDirectories(p.getParent());
             Path tmp = p.resolveSibling(p.getFileName() + ".tmp");
             NbtIo.writeCompressed(t, tmp.toFile());
+            if (backup && Files.isRegularFile(p)) Files.copy(p, bakOf(p), StandardCopyOption.REPLACE_EXISTING);
             try {
                 Files.move(tmp, p, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
             } catch (AtomicMoveNotSupportedException e) {
@@ -431,7 +486,7 @@ public final class PdaStore {
         ChatLog cl = logs.get(c.id);
         if (cl == null) {
             cl = new ChatLog(c.id);
-            CompoundTag t = read(root.resolve("chats").resolve(c.id + ".dat"));
+            CompoundTag t = readOwned(root.resolve("chats").resolve(c.id + ".dat"), false);
             if (t != null) for (Tag e : t.getList("messages", Tag.TAG_COMPOUND)) cl.messages.add(Message.load((CompoundTag) e));
             cl.messages.sort((x, y) -> Integer.compare(x.seq, y.seq));
             logs.put(c.id, cl);
@@ -521,7 +576,7 @@ public final class PdaStore {
                 for (Message m : part) l.add(m.save());
                 CompoundTag t = new CompoundTag();
                 t.put("messages", l);
-                if (!write(root.resolve("archive").resolve(Integer.toString(c.id)).resolve(c.archived + ".dat"), t)) break;
+                if (!write(root.resolve("archive").resolve(Integer.toString(c.id)).resolve(c.archived + ".dat"), t, false)) break;
                 cl.messages.removeIf(m -> m.seq <= to);
                 cl.dirty = true;
                 c.archived++;
