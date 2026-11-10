@@ -434,6 +434,10 @@ public final class PdaServer {
             actionbar(sp, "rppda.err.unconscious");
             return;
         }
+        if (Devices.isPda(stack) && !faygolover.rpcore.api.RpCoreAPI.handsFree(sp)) {
+            actionbar(sp, "rpcore.msg.no_hands");
+            return;
+        }
         if (!Devices.isPda(stack)) return;
         switch (Devices.status(stack, store)) {
             case NEW -> {
