@@ -1,4 +1,9 @@
 """Переводы КПК: ru_ru и en_us из одной таблицы. Запуск: python scripts/gen_lang.py"""
+# ЗАЩИТА ОТ ЗАПУСКА (16.11.2026): в таблице скрипта нет 62 ключей, которые уже есть в lang — запуск их сотрёт.
+import sys as _guard_sys
+if "--force" not in _guard_sys.argv:
+    raise SystemExit("Скрипт отстал от файлов, которые он перезаписывает: в таблице скрипта нет 62 ключей, которые уже есть в lang — запуск их сотрёт. Сначала сверь; запуск всё равно — с ключом --force.")
+_guard_sys.argv.remove("--force")
 import json
 import os
 
