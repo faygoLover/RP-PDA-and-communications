@@ -1,6 +1,6 @@
 package faygolover.rppda.server;
 
-import faygolover.rppda.compat.CuriosCompat;
+import faygolover.rpcore.api.Worn;
 import faygolover.rppda.data.Account;
 import faygolover.rppda.data.PdaStore;
 import faygolover.rppda.item.PdaItem;
@@ -30,7 +30,7 @@ public final class Devices {
         if (isPda(main)) out.add(main);
         ItemStack off = inv.offhand.get(0);
         if (isPda(off)) out.add(off);
-        out.addAll(CuriosCompat.stacks(sp, Devices::isPda));
+        out.addAll(Worn.all(sp, Devices::isPda, "pda"));
         for (int i = 0; i < inv.items.size(); i++) {
             if (i == inv.selected) continue;
             ItemStack s = inv.items.get(i);
@@ -41,13 +41,13 @@ public final class Devices {
 
     /** Счётчик на HUD — по КПК в слоте Curios «КПК» (если Curios стоит и слот включён). */
     public static boolean slotMode() {
-        return CuriosCompat.loaded() && faygolover.rppda.config.PdaCommonConfig.curiosSlot();
+        return Worn.loaded() && faygolover.rppda.config.PdaCommonConfig.curiosSlot();
     }
 
     /** Учётка рабочего КПК в слоте Curios «КПК» или null. */
     @Nullable
     public static Integer slotAccount(ServerPlayer sp, PdaStore store) {
-        for (ItemStack s : CuriosCompat.slotStacks(sp)) {
+        for (ItemStack s : Worn.inSlot(sp, "pda")) {
             if (isPda(s) && status(s, store) == Status.OK) return PdaItem.account(s);
         }
         return null;
@@ -61,7 +61,7 @@ public final class Devices {
         Inventory inv = sp.getInventory();
         for (ItemStack s : inv.items) if (s.getItem() instanceof SystemPdaItem) return true;
         if (inv.offhand.get(0).getItem() instanceof SystemPdaItem) return true;
-        return !CuriosCompat.stacks(sp, s -> s.getItem() instanceof SystemPdaItem).isEmpty();
+        return Worn.any(sp, s -> s.getItem() instanceof SystemPdaItem);
     }
 
     public static Status status(ItemStack s, PdaStore store) {

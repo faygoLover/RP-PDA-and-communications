@@ -1,10 +1,10 @@
 # RP PDA and communications — указатель кода
 
-Создано `python _family/tools/mapgen.py` 15.11.2026, версия 0.5.3-1.20.1-forge, коммит `2645a9f`.
+Создано `python _family/tools/mapgen.py`, версия мода 0.5.4-1.20.1-forge.
 **Руками не править**: пересоздаётся скриптом. Смысл, потоки работы и рецепты — в `docs/MAP.md`.
 Разбор по шаблонам, без компиляции: необычно оформленная регистрация может отсутствовать в списках.
 
-Всего: 54 файлов, 13622 строк Java.
+Всего: 53 файлов, 13562 строк Java.
 
 ## 1. Пакеты
 
@@ -13,7 +13,6 @@
 | `faygolover.rppda` | 1 | 62 |
 | `faygolover.rppda.api` | 2 | 128 |
 | `faygolover.rppda.client` | 13 | 5808 |
-| `faygolover.rppda.compat` | 1 | 60 |
 | `faygolover.rppda.config` | 2 | 290 |
 | `faygolover.rppda.data` | 7 | 1195 |
 | `faygolover.rppda.gametest` | 2 | 771 |
@@ -46,9 +45,6 @@
 - `Skins`, 82 — Корпуса ретро-КПК: цвет (одноцветные) или текстура textures/gui/skin/ .png (с рисунком, из scripts/gen_skins.py), цвет и место надписи модели, рамка экрана, светлые/тёмные клавиши.
 - `Ui`, 385 — Оформление КПК: цвета, значки атласа textures/gui/icons.png, кнопки-значки, аватары, время.
 - `Xfers`, 174 — Передачи файлов этого игрока (docs/20_retro_memory.md §4): сервер раз в секунду присылает список.
-
-### `faygolover.rppda.compat`
-- `CuriosCompat`, 60 — Curios (по желанию): КПК в слотах.
 
 ### `faygolover.rppda.config`
 - `PdaCommonConfig`, 66 — Общий конфиг (config/rppda-common.toml): то, что нужно до загрузки мира.
@@ -103,7 +99,7 @@
 - `Passwords`, 40 — Пароли КПК: хранится только хэш PBKDF2 с солью — даже ГМ видит лишь «пароль есть».
 - `RpClock`, 158 — RP-время на реальный момент (находка 56).
 
-Классов без описания: 0 из 54.
+Классов без описания: 0 из 53.
 
 ## 3. Подписки на события
 
@@ -162,9 +158,9 @@
 
 ## 9. Связи с другими модами
 
-Проверки `isLoaded`: `curios` (CuriosCompat, PdaGameTests).
+Проверки `isLoaded`: `curios` (PdaGameTests).
 
-Пакеты других модов семейства в коде: `rpcore` — 11 файлов.
+Пакеты других модов семейства в коде: `rpcore` — 12 файлов.
 
 Миксины (2):
 - `ChatComponentMixin` (client) → ChatComponent.class
