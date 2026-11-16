@@ -4,13 +4,13 @@
 **Руками не править**: пересоздаётся скриптом. Смысл, потоки работы и рецепты — в `docs/MAP.md`.
 Разбор по шаблонам, без компиляции: необычно оформленная регистрация может отсутствовать в списках.
 
-Всего: 57 файлов, 13664 строк Java.
+Всего: 57 файлов, 13666 строк Java.
 
 ## 1. Пакеты
 
 | Пакет | Файлов | Строк |
 |---|---:|---:|
-| `faygolover.rppda` | 1 | 62 |
+| `faygolover.rppda` | 1 | 64 |
 | `faygolover.rppda.api` | 2 | 128 |
 | `faygolover.rppda.client` | 13 | 5808 |
 | `faygolover.rppda.config` | 2 | 290 |
@@ -25,7 +25,7 @@
 ## 2. Классы
 
 ### `faygolover.rppda`
-- `RpPda`, 62 — RP PDA — КПК для семейства RP-модов (план — docs/00_plan.md): игровой мессенджер вместо чата и /tell.
+- `RpPda`, 64 — RP PDA — КПК для семейства RP-модов (план — docs/00_plan.md): игровой мессенджер вместо чата и /tell.
 
 ### `faygolover.rppda.api`
 - `PdaApps`, 102 — Разделы КПК от аддонов (только клиент).
@@ -156,7 +156,7 @@
 
 ## 8. Что берёт из RP Core и что ему даёт
 
-Методы `RpCoreAPI` (сколько вызовов): `SpeechChannel` 5, `filterSpeech` 5, `handsFree` 1, `hasTrait` 3, `registerModule` 1, `unconscious` 11.
+Методы `RpCoreAPI` (сколько вызовов): `SpeechChannel` 5, `filterSpeech` 5, `handsFree` 1, `hasTrait` 3, `registerModule` 1, `reportCompat` 1, `unconscious` 11.
 
 События Core: `PictureChangedEvent`, `RpMoodEvent`.
 

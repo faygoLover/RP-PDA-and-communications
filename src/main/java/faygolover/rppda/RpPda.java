@@ -49,6 +49,8 @@ public class RpPda {
     private void commonSetup(FMLCommonSetupEvent e) {
         Net.register();
         e.enqueueWork(() -> RpCoreAPI.registerModule(MODID, "КПК: мессенджер вместо чата и /tell, группы, каналы"));
+        // Необязательные интеграции — в общий отчёт RP Core (/rpcore compat).
+        e.enqueueWork(() -> faygolover.rpcore.api.RpCoreAPI.reportCompat(MODID, "curios"));
     }
 
     private void onConfig(ModConfigEvent.Loading e) {
