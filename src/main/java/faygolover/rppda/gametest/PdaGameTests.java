@@ -1,5 +1,6 @@
 package faygolover.rppda.gametest;
 
+import faygolover.rppda.server.LookActions;
 import com.mojang.authlib.GameProfile;
 import faygolover.rppda.RpPda;
 import faygolover.rppda.data.Account;
@@ -331,7 +332,7 @@ public final class PdaGameTests {
         ServerPlayer a = player(h), b = player(h);
         Account aa = register(h, a), bb = register(h, b);
         startDm(a, aa, bb, "привет");
-        Actions.setSignal(store(), aa, false, "test");
+        LookActions.setSignal(store(), aa, false, "test");
         Chat dm = store().findDm(aa.id, bb.id);
         int before = dm.lastSeq;
         // Без связи писать нельзя.
@@ -347,11 +348,11 @@ public final class PdaGameTests {
         h.assertTrue(faygolover.rppda.server.Messaging.check(aa, sys, "помогите", a) == null, "Системе писать можно");
         h.assertTrue(faygolover.rppda.server.Messaging.check(aa, dm, "привет", a) != null, "другим — нельзя");
         // Связь у игрока.
-        Actions.setSignal(store(), aa, true, "test");
+        LookActions.setSignal(store(), aa, true, "test");
         h.assertTrue(PdaServer.signal(a, aa), "связь вернулась");
-        Actions.setPlayerSignal(store(), a.getUUID(), "a", false, "test");
+        LookActions.setPlayerSignal(store(), a.getUUID(), "a", false, "test");
         h.assertTrue(!PdaServer.signal(a, aa), "без связи у игрока — нет связи и у его КПК");
-        Actions.setPlayerSignal(store(), a.getUUID(), "a", true, "test");
+        LookActions.setPlayerSignal(store(), a.getUUID(), "a", true, "test");
         remove(h, a);
         remove(h, b);
         h.succeed();
@@ -361,10 +362,10 @@ public final class PdaGameTests {
     public static void characterModeDropsAdminPerks(GameTestHelper h) {
         ServerPlayer gm = player(h, true);
         h.assertTrue(PdaServer.isAdmin(gm) && PdaServer.isGm(gm), "админ");
-        Actions.setCharacter(store(), gm, true);
+        LookActions.setCharacter(store(), gm, true);
         h.assertTrue(!PdaServer.isAdmin(gm), "в режиме персонажа — как обычный игрок");
         h.assertTrue(PdaServer.isGm(gm), "права ГМа (системный КПК, команды) остаются");
-        Actions.setCharacter(store(), gm, false);
+        LookActions.setCharacter(store(), gm, false);
         h.assertTrue(PdaServer.isAdmin(gm), "режим выключен — снова админ");
         remove(h, gm);
         h.succeed();
@@ -388,7 +389,7 @@ public final class PdaGameTests {
                 "вид из предмета перешёл в учётку");
         faygolover.rppda.data.Look n = a.look.copy();
         n.body = "wave";
-        Actions.setLook(store(), a, n, "test");
+        LookActions.setLook(store(), a, n, "test");
         PdaServer.scan(p);
         h.assertTrue(PdaItem.look(p.getMainHandItem()).body.equals("wave"), "предмет показывает новый корпус");
         h.assertTrue(PdaItem.skinIndex(p.getMainHandItem()) > 0, "иконка — не стандартная");

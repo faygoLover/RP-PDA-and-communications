@@ -70,7 +70,7 @@ public final class PdaCommands {
         root.then(Commands.literal("gm").then(Commands.argument("on", BoolArgumentType.bool()).executes(c -> {
             ServerPlayer sp = c.getSource().getPlayerOrException();
             if (PdaServer.store == null) return 0;
-            Actions.setCharacter(PdaServer.store, sp, !BoolArgumentType.getBool(c, "on"));
+            LookActions.setCharacter(PdaServer.store, sp, !BoolArgumentType.getBool(c, "on"));
             return 1;
         })));
         d.register(root);
@@ -112,23 +112,23 @@ public final class PdaCommands {
         if (a == null) return 0;
         Look l = a.look.copy();
         change.accept(l);
-        Actions.setLook(PdaServer.store, a, Look.load(l.save()), gm(c));
-        c.getSource().sendSuccess(() -> Component.translatable("rppda.cmd.look", Actions.label(a)), true);
+        LookActions.setLook(PdaServer.store, a, Look.load(l.save()), gm(c));
+        c.getSource().sendSuccess(() -> Component.translatable("rppda.cmd.look", SystemActions.label(a)), true);
         return 1;
     }
 
     private static int signalPda(CommandContext<CommandSourceStack> c, boolean on) {
         Account a = account(c);
         if (a == null) return 0;
-        Actions.setSignal(PdaServer.store, a, on, gm(c));
-        c.getSource().sendSuccess(() -> Component.translatable(on ? "rppda.cmd.signal_on" : "rppda.cmd.signal_off", Actions.label(a)), true);
+        LookActions.setSignal(PdaServer.store, a, on, gm(c));
+        c.getSource().sendSuccess(() -> Component.translatable(on ? "rppda.cmd.signal_on" : "rppda.cmd.signal_off", SystemActions.label(a)), true);
         return 1;
     }
 
     private static int signalPlayers(CommandContext<CommandSourceStack> c, boolean on) throws CommandSyntaxException {
         if (PdaServer.store == null) return 0;
         Collection<ServerPlayer> ps = EntityArgument.getPlayers(c, "targets");
-        for (ServerPlayer p : ps) Actions.setPlayerSignal(PdaServer.store, p.getUUID(), p.getGameProfile().getName(), on, gm(c));
+        for (ServerPlayer p : ps) LookActions.setPlayerSignal(PdaServer.store, p.getUUID(), p.getGameProfile().getName(), on, gm(c));
         c.getSource().sendSuccess(() -> Component.translatable(on ? "rppda.cmd.signal_on" : "rppda.cmd.signal_off",
                 ps.size() == 1 ? ps.iterator().next().getDisplayName().getString() : Integer.toString(ps.size())), true);
         return ps.size();

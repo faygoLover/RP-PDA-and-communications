@@ -116,7 +116,7 @@ public final class Hack {
         s.device = a.id;
         s.hand = other;
         PdaServer.sessions.put(sp.getUUID(), s);
-        store.gmLog(sp.getGameProfile().getName(), "hack_try", Actions.label(a));
+        store.gmLog(sp.getGameProfile().getName(), "hack_try", SystemActions.label(a));
         CompoundTag t = state(g, sp);
         t.putString("style", PdaConfig.style);
         t.put("look", a.look.save());
@@ -270,7 +270,7 @@ public final class Hack {
             a.hackTime = System.currentTimeMillis();
             store.markAccounts();
             PdaServer.holders.put(a.id, sp.getUUID());
-            store.gmLog(sp.getGameProfile().getName(), "hack_ok", Actions.label(a));
+            store.gmLog(sp.getGameProfile().getName(), "hack_ok", SystemActions.label(a));
             // Успех тратит отмычку целиком.
             pick.shrink(1);
             CompoundTag t = state(g, sp);
@@ -330,7 +330,7 @@ public final class Hack {
         a.locked = true;
         store.markAccounts();
         PdaServer.holders.remove(a.id);
-        store.gmLog(sp.getGameProfile().getName(), "hack_fail", Actions.label(a));
+        store.gmLog(sp.getGameProfile().getName(), "hack_fail", SystemActions.label(a));
     }
 
     @Nullable

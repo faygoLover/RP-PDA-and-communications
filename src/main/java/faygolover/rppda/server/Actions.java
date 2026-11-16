@@ -1,9 +1,12 @@
 package faygolover.rppda.server;
 
+import static faygolover.rppda.server.AccountActions.*;
+import static faygolover.rppda.server.LookActions.*;
+import static faygolover.rppda.server.GroupActions.*;
+import static faygolover.rppda.server.SystemActions.*;
 import faygolover.rppda.config.PdaConfig;
 import faygolover.rppda.data.Account;
 import faygolover.rppda.data.Chat;
-import faygolover.rppda.data.ChatLog;
 import faygolover.rppda.data.Message;
 import faygolover.rppda.data.Note;
 import faygolover.rppda.data.PdaStore;
@@ -16,20 +19,17 @@ import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.StringTag;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
-import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.Iterator;
 import java.util.List;
-import java.util.Locale;
 
 /** Действия из окна КПК. Сервер проверяет всё сам: окно открыто, КПК ещё при игроке, права на чат. */
 public final class Actions {
     private Actions() {}
 
-    private static final int PAGE = 100;
-    private static final int TITLE_MAX = 32;
+    static final int PAGE = 100;
+    static final int TITLE_MAX = 32;
 
     public static void handle(ServerPlayer sp, String op, CompoundTag d) {
         PdaStore store = PdaServer.store;
@@ -68,7 +68,7 @@ public final class Actions {
         }
     }
 
-    private static boolean valid(ServerPlayer sp, PdaServer.Session s, PdaStore store) {
+    static boolean valid(ServerPlayer sp, PdaServer.Session s, PdaStore store) {
         if (s.system) return PdaServer.isAdmin(sp) && Devices.hasSystem(sp);
         Account a = store.account(s.device);
         return a != null && !a.locked && Devices.holds(sp, a);
@@ -84,100 +84,9 @@ public final class Actions {
         Net.send(sp, "toast", t);
     }
 
-    // ---------------------------------------------------------------- регистрация и пароль
-
-    private static void register(ServerPlayer sp, PdaStore store) {
-        PdaServer.Session s = PdaServer.sessions.get(sp.getUUID());
-        if (s == null || s.mode != PdaServer.Session.Mode.REGISTER) return;
-        ItemStack stack = sp.getItemInHand(s.hand);
-        if (!Devices.isPda(stack) || PdaItem.account(stack) != 0) {
-            PdaServer.close(sp);
-            return;
-        }
-        String name = PdaServer.displayName(sp);
-        Account a = store.createAccount(Account.Kind.PLAYER, name, sp.getUUID());
-        // Вид, что ГМ задал новому КПК, переходит в учётку.
-        a.look = PdaItem.look(stack);
-        PdaItem.bind(stack, a.id, a.issue, a.name);
-        PdaItem.setLook(stack, a.look);
-        PdaServer.flushPending(sp, a);
-        store.setLastAccount(sp.getUUID(), a.id);
-        PdaServer.open(sp, a);
-        PdaServer.scan(sp);
-        toast(sp, "rppda.toast.registered", false, PdaItem.formatId(a.id));
-    }
-
-    /** ГМ регистрирует новый КПК сразу на NPC-учётку (владельца нет). */
-    private static void registerNpc(ServerPlayer sp, PdaStore store, String name) {
-        PdaServer.Session s = PdaServer.sessions.get(sp.getUUID());
-        if (!PdaServer.isGm(sp) || s == null || s.mode != PdaServer.Session.Mode.REGISTER) return;
-        if (name.isEmpty() || name.length() > TITLE_MAX) {
-            toast(sp, "rppda.err.title", true);
-            return;
-        }
-        ItemStack stack = sp.getItemInHand(s.hand);
-        if (!Devices.isPda(stack) || PdaItem.account(stack) != 0) {
-            PdaServer.close(sp);
-            return;
-        }
-        Account a = store.createAccount(Account.Kind.NPC, name, null);
-        a.look = PdaItem.look(stack);
-        PdaItem.bind(stack, a.id, a.issue, a.name);
-        PdaItem.setLook(stack, a.look);
-        store.gmLog(sp.getGameProfile().getName(), "npc", label(a));
-        PdaServer.open(sp, a);
-        PdaServer.scan(sp);
-        toast(sp, "rppda.toast.registered", false, PdaItem.formatId(a.id));
-    }
-
-    private static void unlock(ServerPlayer sp, PdaStore store, String pw) {
-        PdaServer.Session s = PdaServer.sessions.get(sp.getUUID());
-        if (s == null || s.mode != PdaServer.Session.Mode.LOCKED) return;
-        Account a = store.account(s.device);
-        if (a == null || !Devices.holds(sp, a)) {
-            PdaServer.close(sp);
-            return;
-        }
-        if (a.burned) return;
-        if (!a.locked || !a.hasPassword()) {
-            a.locked = false;
-            PdaServer.open(sp, a);
-            return;
-        }
-        if (!checkPassword(sp, a, pw)) return;
-        a.locked = false;
-        a.pwLen = pw.length();
-        if (sp.getUUID().equals(a.owner)) a.hackNotice = 0;
-        store.markAccounts();
-        PdaServer.holders.put(a.id, sp.getUUID());
-        PdaServer.open(sp, a);
-        PdaServer.scan(sp);
-    }
-
-    /** Проверить пароль с учётом пауз после неверных попыток. */
-    private static boolean checkPassword(ServerPlayer sp, Account a, String pw) {
-        long wait = PdaServer.lockoutLeft(sp);
-        if (wait > 0) {
-            toast(sp, "rppda.err.wait", true, Long.toString((wait + 999) / 1000));
-            return false;
-        }
-        if (Passwords.check(pw, a.pwSalt, a.pwHash)) {
-            PdaServer.failed.remove(sp.getUUID());
-            return true;
-        }
-        int[] f = PdaServer.failed.computeIfAbsent(sp.getUUID(), k -> new int[1]);
-        f[0]++;
-        if (f[0] >= PdaConfig.passwordAttempts) {
-            f[0] = 0;
-            PdaServer.lockoutUntil.put(sp.getUUID(), System.currentTimeMillis() + PdaConfig.lockoutSeconds * 1000L);
-            toast(sp, "rppda.err.wait", true, Integer.toString(PdaConfig.lockoutSeconds));
-        } else toast(sp, "rppda.err.password", true);
-        return false;
-    }
-
     // ---------------------------------------------------------------- окно
 
-    private static void session(ServerPlayer sp, PdaServer.Session s, PdaStore store, Account me, String op, CompoundTag d) {
+    static void session(ServerPlayer sp, PdaServer.Session s, PdaStore store, Account me, String op, CompoundTag d) {
         switch (op) {
             case "state" -> Views.sendState(sp, s);
             case "lock" -> {
@@ -466,7 +375,7 @@ public final class Actions {
      * Ячейка расширения в профиле: поставить плату памяти из ячейки инвентаря {@code inv} (0–35, 40 — вторая рука) или
      * снять ({@code inv} = −1). Старая плата возвращается в инвентарь.
      */
-    private static void memSlot(ServerPlayer sp, PdaServer.Session s, Account me, int slot, int inv) {
+    static void memSlot(ServerPlayer sp, PdaServer.Session s, Account me, int slot, int inv) {
         if (s.system || slot < 0 || slot >= PdaItem.SLOTS) return;
         ItemStack dev = Devices.stackOf(sp, me);
         if (dev == null) return;
@@ -496,18 +405,18 @@ public final class Actions {
         return b.toString();
     }
 
-    private static boolean canRead(PdaServer.Session s, Account me, Chat c) {
+    static boolean canRead(PdaServer.Session s, Account me, Chat c) {
         return c.has(me.id) || s.system;
     }
 
-    private static void sendRow(ServerPlayer sp, PdaServer.Session s, PdaStore store, Account me, Chat c) {
+    static void sendRow(ServerPlayer sp, PdaServer.Session s, PdaStore store, Account me, Chat c) {
         CompoundTag t = new CompoundTag();
         t.put("row", Views.row(store, me, c, s));
         Net.send(sp, "row", t);
     }
 
     /** Страница из {@link #PAGE} сообщений до номера {@code before} (0 — последние). Архив читается в отдельном потоке. */
-    private static void history(ServerPlayer sp, PdaServer.Session s, PdaStore store, Chat c, int before) {
+    static void history(ServerPlayer sp, PdaServer.Session s, PdaStore store, Chat c, int before) {
         int to = before <= 0 ? c.lastSeq : Math.min(c.lastSeq, before - 1);
         int from = Math.max(1, to - PAGE + 1);
         int hotFrom = PdaStore.hotFrom(c);
@@ -534,7 +443,7 @@ public final class Actions {
         });
     }
 
-    private static void sendHistory(ServerPlayer sp, PdaServer.Session s, PdaStore store, Chat c, int before, int from,
+    static void sendHistory(ServerPlayer sp, PdaServer.Session s, PdaStore store, Chat c, int before, int from,
                                     List<Message> msgs) {
         CompoundTag t = new CompoundTag();
         t.putInt("chat", c.id);
@@ -598,7 +507,7 @@ public final class Actions {
     }
 
     /** Окно КПК без связи: сказать и вернуть true. */
-    private static boolean noSignal(ServerPlayer sp, PdaServer.Session s) {
+    static boolean noSignal(ServerPlayer sp, PdaServer.Session s) {
         if (s.system) return false;
         Account dev = PdaServer.store.account(s.device);
         if (dev == null || PdaServer.signal(sp, dev)) return false;
@@ -606,459 +515,4 @@ public final class Actions {
         return true;
     }
 
-    // ---------------------------------------------------------------- внешний вид (ГМ)
-
-    /** ГМ задаёт вид новому (не зарегистрированному) КПК у себя в руке. */
-    private static void lookHand(ServerPlayer sp, PdaStore store, CompoundTag d) {
-        PdaServer.Session s = PdaServer.sessions.get(sp.getUUID());
-        if (!PdaServer.isGm(sp) || s == null || s.mode != PdaServer.Session.Mode.REGISTER) return;
-        ItemStack stack = sp.getItemInHand(s.hand);
-        if (!Devices.isPda(stack) || PdaItem.account(stack) != 0) return;
-        PdaItem.setLook(stack, faygolover.rppda.data.Look.load(d.getCompound("look")));
-        PdaServer.sendRegister(sp, stack);
-    }
-
-    /** Вид учётки (из системного КПК или командой): у всех, кто держит её КПК, окно обновится. */
-    public static void setLook(PdaStore store, Account a, faygolover.rppda.data.Look look, String gm) {
-        if (a.look.same(look)) return;
-        a.look = look;
-        store.markAccounts();
-        store.gmLog(gm, "look", label(a));
-        if (PdaServer.server == null) return;
-        for (ServerPlayer p : PdaServer.server.getPlayerList().getPlayers()) {
-            PdaServer.Session o = PdaServer.sessions.get(p.getUUID());
-            if (o != null && !o.system && o.device == a.id && o.mode == PdaServer.Session.Mode.OPEN) Views.sendState(p, o);
-            PdaServer.scan(p);
-        }
-    }
-
-    /** Связь на КПК (учётке). */
-    public static void setSignal(PdaStore store, Account a, boolean on, String gm) {
-        if (a.noSignal == !on) return;
-        a.noSignal = !on;
-        a.noSignalSince = on ? 0 : System.currentTimeMillis();
-        store.markAccounts();
-        store.gmLog(gm, on ? "signal_on" : "signal_off", label(a));
-        PdaServer.signalChanged(a.id, null);
-    }
-
-    /** Связь у игрока (любой КПК у него в руках). */
-    public static void setPlayerSignal(PdaStore store, java.util.UUID player, String name, boolean on, String gm) {
-        boolean has = !store.noSignalPlayers.containsKey(player);
-        if (has == on) return;
-        if (on) store.noSignalPlayers.remove(player);
-        else store.noSignalPlayers.put(player, System.currentTimeMillis());
-        store.markMisc();
-        store.gmLog(gm, on ? "signal_on" : "signal_off", name);
-        PdaServer.signalChanged(null, player);
-    }
-
-    /** Режим персонажа: админ — как обычный игрок (системный КПК и команды остаются). */
-    public static void setCharacter(PdaStore store, ServerPlayer sp, boolean on) {
-        if (on) store.characterMode.add(sp.getUUID());
-        else store.characterMode.remove(sp.getUUID());
-        store.markMisc();
-        store.gmLog(sp.getGameProfile().getName(), on ? "character_on" : "character_off", "");
-        sp.displayClientMessage(net.minecraft.network.chat.Component.translatable(on ? "rppda.msg.character_on" : "rppda.msg.character_off")
-                .withStyle(net.minecraft.ChatFormatting.GOLD), true);
-        PdaServer.scan(sp);
-        Messaging.sendUnread(sp);
-    }
-
-    private static void delete(ServerPlayer sp, PdaServer.Session s, PdaStore store, Account me, CompoundTag d) {
-        Chat c = store.chat(d.getInt("chat"));
-        if (c == null || !canRead(s, me, c)) return;
-        ChatLog log = store.log(c);
-        Message m = log.find(d.getInt("seq"));
-        if (m == null) {
-            toast(sp, "rppda.err.too_old", true);
-            return;
-        }
-        if (m.deleted() || m.has(Message.NOTICE)) return;
-        boolean gm = s.system;
-        if (m.sender != me.id && !gm) return;
-        m.flags |= Message.DELETED;
-        log.dirty = true;
-        if (m.seq == c.lastSeq) {
-            c.lastPreview = "";
-            store.markChats();
-        }
-        if (gm && m.sender != me.id) {
-            Account from = store.account(m.sender);
-            store.gmLog(sp.getGameProfile().getName(), "delete", (from == null ? "?" : from.name) + ": " + m.text);
-        }
-        CompoundTag t = new CompoundTag();
-        t.putInt("chat", c.id);
-        t.putInt("seq", m.seq);
-        for (ServerPlayer p : sp.server.getPlayerList().getPlayers()) {
-            PdaServer.Session o = PdaServer.sessions.get(p.getUUID());
-            if (o != null && o.openChat == c.id) Net.send(p, "deleted", t);
-        }
-    }
-
-    // ---------------------------------------------------------------- группы
-
-    private static void group(ServerPlayer sp, PdaServer.Session s, PdaStore store, Account me, String op, CompoundTag d) {
-        Chat c = store.chat(d.getInt("chat"));
-        if (c == null || !c.isGroup()) return;
-        switch (op) {
-            case "group.accept" -> {
-                if (!me.invites.contains(c.id)) return;
-                store.addMember(c, me.id);
-                store.markAccounts();
-                Messaging.notice(c, "rppda.notice.joined", me.name);
-                Views.sendState(sp, s);
-                if (!s.system) Messaging.sendUnread(sp);
-                return;
-            }
-            case "group.decline" -> {
-                me.invites.remove(c.id);
-                c.invited.remove(me.id);
-                store.markAccounts();
-                store.markChats();
-                Views.sendState(sp, s);
-                if (!s.system) Messaging.sendUnread(sp);
-                return;
-            }
-            case "group.members" -> {
-                if (!canRead(s, me, c)) return;
-                sendMembers(sp, store, me, c);
-                return;
-            }
-            default -> {}
-        }
-        if (!c.has(me.id)) return;
-        boolean admin = c.admin == me.id;
-        switch (op) {
-            case "group.invite" -> {
-                if (!admin) return;
-                Account o = store.account(d.getInt("id"));
-                if (o == null || o.kind == Account.Kind.SYSTEM) {
-                    toast(sp, "rppda.err.no_account", true);
-                    return;
-                }
-                if (c.has(o.id) || o.invites.contains(c.id)) {
-                    toast(sp, "rppda.err.already", true);
-                    return;
-                }
-                if (o.blocked.contains(me.id)) {
-                    toast(sp, "rppda.err.blocked_by", true);
-                    return;
-                }
-                o.invites.add(c.id);
-                c.invited.add(o.id);
-                store.markAccounts();
-                store.markChats();
-                toast(sp, "rppda.toast.invited", false, Views.nameFor(store, me, o.id));
-                notifyInvite(o);
-                sendMembers(sp, store, me, c);
-            }
-            case "group.kick" -> {
-                int id = d.getInt("id");
-                if (!admin || id == me.id) return;
-                if (c.invited.remove(id)) {
-                    Account o = store.account(id);
-                    if (o != null) o.invites.remove(c.id);
-                    store.markAccounts();
-                    store.markChats();
-                } else if (c.has(id)) {
-                    store.removeMember(c, id);
-                    Account o = store.account(id);
-                    Messaging.notice(c, "rppda.notice.kicked", me.name, o == null ? "?" : o.name);
-                }
-                sendMembers(sp, store, me, c);
-            }
-            case "group.admin" -> {
-                int id = d.getInt("id");
-                if (!admin || !c.members.contains(id) || id == me.id) return;
-                c.admin = id;
-                store.markChats();
-                Account o = store.account(id);
-                Messaging.notice(c, "rppda.notice.admin", o == null ? "?" : o.name);
-                sendMembers(sp, store, me, c);
-            }
-            case "group.rename" -> {
-                String title = d.getString("title").strip();
-                if (!admin) return;
-                if (title.isEmpty() || title.length() > TITLE_MAX) {
-                    toast(sp, "rppda.err.title", true);
-                    return;
-                }
-                c.title = title;
-                store.markChats();
-                Messaging.notice(c, "rppda.notice.renamed", me.name, title);
-                sendMembers(sp, store, me, c);
-            }
-            case "group.leave" -> {
-                store.removeMember(c, me.id);
-                Messaging.notice(c, "rppda.notice.left", me.name);
-                if (admin && c.admin != 0) {
-                    Account o = store.account(c.admin);
-                    Messaging.notice(c, "rppda.notice.admin", o == null ? "?" : o.name);
-                }
-                if (s.openChat == c.id) s.openChat = -1;
-                Views.sendState(sp, s);
-            }
-            default -> {}
-        }
-    }
-
-    private static void notifyInvite(Account o) {
-        if (PdaServer.server == null) return;
-        for (ServerPlayer p : PdaServer.server.getPlayerList().getPlayers()) {
-            Integer act = PdaServer.active.get(p.getUUID());
-            if (act != null && act == o.id) Messaging.sendUnread(p);
-        }
-    }
-
-    private static void sendMembers(ServerPlayer sp, PdaStore store, Account me, Chat c) {
-        CompoundTag t = new CompoundTag();
-        t.putInt("chat", c.id);
-        t.putString("title", c.title);
-        t.putInt("admin", c.admin);
-        t.putBoolean("channel", c.type == Chat.Type.CHANNEL);
-        ListTag l = new ListTag();
-        for (int id : c.members) {
-            Account a = store.account(id);
-            if (a == null) continue;
-            CompoundTag e = Views.account(store, a, null);
-            e.putString("name", Views.nameFor(store, me, id));
-            l.add(e);
-        }
-        t.put("members", l);
-        ListTag inv = new ListTag();
-        for (int id : c.invited) {
-            Account a = store.account(id);
-            if (a == null) continue;
-            CompoundTag e = Views.account(store, a, null);
-            e.putString("name", Views.nameFor(store, me, id));
-            inv.add(e);
-        }
-        t.put("invited", inv);
-        Net.send(sp, "members", t);
-    }
-
-    // ---------------------------------------------------------------- системный КПК
-
-    private static void system(ServerPlayer sp, PdaServer.Session s, PdaStore store, String op, CompoundTag d) {
-        String gm = sp.getGameProfile().getName();
-        switch (op) {
-            case "sys.accounts" -> {
-                String q = d.getString("q").strip().toLowerCase(Locale.ROOT);
-                List<Account> list = new ArrayList<>();
-                for (Account a : store.accounts.values()) {
-                    // Удалённые учётки остаются в хранилище (подпись «Удалённая учётка» в группах), но не в списке.
-                    if (a.deleted) continue;
-                    if (q.isEmpty() || a.name.toLowerCase(Locale.ROOT).contains(q)
-                            || String.format("%08d", a.id).contains(q.replace(" ", ""))) list.add(a);
-                }
-                list.sort(Comparator.comparing((Account a) -> a.kind != Account.Kind.SYSTEM)
-                        .thenComparing(a -> a.name.toLowerCase(Locale.ROOT)));
-                ListTag l = new ListTag();
-                for (Account a : list) {
-                    if (l.size() >= 300) break;
-                    l.add(sysAccount(store, a));
-                }
-                CompoundTag t = new CompoundTag();
-                t.put("list", l);
-                Net.send(sp, "sys.accounts", t);
-            }
-            case "sys.chats" -> {
-                List<Chat> list = new ArrayList<>();
-                for (Chat c : store.allChats()) if (c.type != Chat.Type.DM || c.lastSeq > 0) list.add(c);
-                list.sort(Comparator.comparingLong((Chat c) -> c.lastTime).reversed());
-                Account viewer = store.account(s.acting);
-                ListTag l = new ListTag();
-                for (Chat c : list) {
-                    if (l.size() >= 500) break;
-                    l.add(Views.row(store, viewer, c, s));
-                }
-                CompoundTag t = new CompoundTag();
-                t.put("list", l);
-                Net.send(sp, "sys.chats", t);
-            }
-            case "sys.log" -> {
-                ListTag l = new ListTag();
-                Iterator<PdaStore.GmEntry> it = store.gmLog.descendingIterator();
-                while (it.hasNext() && l.size() < 300) {
-                    PdaStore.GmEntry e = it.next();
-                    CompoundTag ct = new CompoundTag();
-                    ct.putLong("time", e.time());
-                    ct.putString("gm", e.gm());
-                    ct.putString("action", e.action());
-                    ct.putString("target", e.target());
-                    l.add(ct);
-                }
-                CompoundTag t = new CompoundTag();
-                t.put("list", l);
-                Net.send(sp, "sys.log", t);
-            }
-            case "sys.switch" -> {
-                Account a = store.account(d.getInt("id"));
-                if (a == null) return;
-                s.acting = a.id;
-                s.openChat = -1;
-                if (a.id != 0) store.gmLog(gm, "switch", label(a));
-                Views.sendState(sp, s);
-            }
-            case "sys.give" -> {
-                Account a = target(store, d);
-                if (a == null) return;
-                a.issue++;
-                a.burned = false;
-                if (a.hasPassword()) a.locked = true;
-                PdaServer.holders.remove(a.id);
-                store.markAccounts();
-                ItemStack stack = new ItemStack(ModItems.PDA.get());
-                PdaItem.bind(stack, a.id, a.issue, a.name);
-                PdaItem.setLook(stack, a.look);
-                if (!sp.getInventory().add(stack)) sp.drop(stack, false);
-                store.gmLog(gm, "give", label(a));
-                toast(sp, "rppda.toast.given", false, a.name);
-                PdaServer.lock(a.id);
-                refreshAccount(sp, store, a);
-            }
-            case "sys.unlock" -> {
-                Account a = target(store, d);
-                if (a == null) return;
-                a.locked = false;
-                store.markAccounts();
-                store.gmLog(gm, "unlock", label(a));
-                refreshAccount(sp, store, a);
-            }
-            case "sys.avatar_reset" -> {
-                Account a = target(store, d);
-                if (a == null || a.avatarPic == 0) return;
-                AvatarPics.remove(a);
-                store.markAccounts();
-                store.gmLog(gm, "avatar_reset", label(a));
-                refreshAccount(sp, store, a);
-            }
-            case "sys.resetpw" -> {
-                Account a = target(store, d);
-                if (a == null) return;
-                a.pwHash = a.pwSalt = null;
-                a.locked = false;
-                PdaServer.holders.remove(a.id);
-                store.markAccounts();
-                store.gmLog(gm, "resetpw", label(a));
-                refreshAccount(sp, store, a);
-            }
-            case "sys.tp" -> {
-                Account a = target(store, d);
-                if (a == null || a.owner == null) return;
-                ServerPlayer p = sp.server.getPlayerList().getPlayer(a.owner);
-                if (p == null) {
-                    toast(sp, "rppda.err.offline", true);
-                    return;
-                }
-                sp.teleportTo(p.serverLevel(), p.getX(), p.getY(), p.getZ(), p.getYRot(), p.getXRot());
-                store.gmLog(gm, "tp", label(a));
-            }
-            case "sys.npc" -> {
-                String name = d.getString("name").strip();
-                if (name.isEmpty() || name.length() > TITLE_MAX) {
-                    toast(sp, "rppda.err.title", true);
-                    return;
-                }
-                Account a = store.createAccount(Account.Kind.NPC, name, null);
-                ItemStack stack = new ItemStack(ModItems.PDA.get());
-                PdaItem.bind(stack, a.id, a.issue, a.name);
-                PdaItem.setLook(stack, a.look);
-                if (!sp.getInventory().add(stack)) sp.drop(stack, false);
-                store.gmLog(gm, "npc", label(a));
-                toast(sp, "rppda.toast.npc", false, a.name, PdaItem.formatId(a.id));
-                refreshAccount(sp, store, a);
-            }
-            case "sys.look" -> {
-                Account a = target(store, d);
-                if (a == null) return;
-                setLook(store, a, faygolover.rppda.data.Look.load(d.getCompound("look")), gm);
-                refreshAccount(sp, store, a);
-            }
-            case "sys.signal" -> {
-                Account a = target(store, d);
-                if (a == null) return;
-                setSignal(store, a, d.getBoolean("on"), gm);
-                refreshAccount(sp, store, a);
-            }
-            case "sys.signalOwner" -> {
-                Account a = target(store, d);
-                if (a == null || a.owner == null) return;
-                setPlayerSignal(store, a.owner, a.name, d.getBoolean("on"), gm);
-                refreshAccount(sp, store, a);
-            }
-            case "sys.delete" -> {
-                Account a = target(store, d);
-                if (a == null) return;
-                String who = label(a);
-                // Окна с этой учёткой закрываются, КПК с ней больше не работают.
-                for (ServerPlayer p : sp.server.getPlayerList().getPlayers()) {
-                    PdaServer.Session o = PdaServer.sessions.get(p.getUUID());
-                    if (o != null && !o.system && o.device == a.id) PdaServer.close(p);
-                    if (o != null && o.system && o.acting == a.id) o.acting = 0;
-                }
-                PdaServer.holders.remove(a.id);
-                store.deleteAccount(a);
-                store.gmLog(gm, "delete_account", who);
-                toast(sp, "rppda.toast.deleted", false, who);
-                for (ServerPlayer p : sp.server.getPlayerList().getPlayers()) PdaServer.scan(p);
-                Views.sendState(sp, s);
-            }
-            case "sys.character" -> {
-                setCharacter(store, sp, d.getBoolean("on"));
-                Views.sendState(sp, s);
-            }
-            case "sys.rename" -> {
-                Account a = target(store, d);
-                String name = d.getString("name").strip();
-                if (a == null || a.kind != Account.Kind.NPC) return;
-                if (name.isEmpty() || name.length() > TITLE_MAX) {
-                    toast(sp, "rppda.err.title", true);
-                    return;
-                }
-                store.gmLog(gm, "rename", label(a) + " → " + name);
-                a.name = name;
-                store.markAccounts();
-                refreshAccount(sp, store, a);
-            }
-            default -> {}
-        }
-    }
-
-    @Nullable
-    private static Account target(PdaStore store, CompoundTag d) {
-        Account a = store.account(d.getInt("id"));
-        return a == null || a.kind == Account.Kind.SYSTEM ? null : a;
-    }
-
-    static String label(Account a) {
-        return a.name + " (" + PdaItem.formatId(a.id) + ")";
-    }
-
-    private static CompoundTag sysAccount(PdaStore store, Account a) {
-        CompoundTag t = Views.account(store, a, null);
-        t.putBoolean("locked", a.locked);
-        t.putBoolean("pw", a.hasPassword());
-        t.putInt("issue", a.issue);
-        t.put("look", a.look.save());
-        t.putBoolean("signal", !a.noSignal);
-        if (a.owner != null) t.putBoolean("ownerSignal", !store.noSignalPlayers.containsKey(a.owner));
-        t.putLong("created", a.created);
-        boolean online = false;
-        if (a.owner != null && PdaServer.server != null) online = PdaServer.server.getPlayerList().getPlayer(a.owner) != null;
-        t.putBoolean("online", online);
-        if (a.owner != null && PdaServer.server != null) {
-            var profile = PdaServer.server.getProfileCache() == null ? null
-                    : PdaServer.server.getProfileCache().get(a.owner).orElse(null);
-            if (profile != null) t.putString("ownerName", profile.getName());
-        }
-        return t;
-    }
-
-    private static void refreshAccount(ServerPlayer sp, PdaStore store, Account a) {
-        CompoundTag t = new CompoundTag();
-        t.put("acc", sysAccount(store, a));
-        Net.send(sp, "sys.account", t);
-    }
 }
